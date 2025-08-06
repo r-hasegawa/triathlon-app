@@ -1,13 +1,14 @@
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form
 from sqlalchemy.orm import Session
+from sqlalchemy import func
 from typing import List, Optional
 from datetime import datetime
 import os
 
 from app.database import get_db
 from app.models.user import AdminUser, User
-from app.models.sensor_data import UploadHistory, SensorMapping
-from app.schemas.user import UserResponse, UserCreate
+from app.models.sensor_data import UploadHistory, SensorMapping, SensorData
+from app.schemas.user import UserResponse, UserCreate, UserUpdate
 from app.schemas.sensor_data import SensorMappingResponse
 from app.utils.dependencies import get_current_admin
 from app.utils.security import validate_file_upload, get_password_hash
@@ -169,77 +170,6 @@ async def list_users(
     users = query.offset(skip).limit(limit).all()
     return users
 
-@router.post("/users", response_model=UserResponse)
-async def create_user(
-    user_data: UserCreate,
-    current_admin: AdminUser = Depends(get_current_admin),
-    db: Session = Depends(get_db)
-):
-    """ユーザー作成"""
-    # 既存ユーザーチェック
-    existing_user = db.query(User).filter(
-        (User.user_id == user_data.user_id) | 
-        (User.username == user_data.username)
-    ).first()
-    
-    if existing_user:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="User ID or username already exists"
-        )
-    
-    # 新規ユーザー作成
-    user = User(
-        user_id=user_data.user_id,
-        username=user_data.username,
-        email=user_data.email,
-        full_name=user_data.full_name,
-        hashed_password=get_password_hash(user_data.password)
-    )
-    
-    db.add(user)
-    db.commit()
-    db.refresh(user)
-    
-    return user
-
-@router.get("/upload-history")
-async def get_upload_history(
-    skip: int = 0,
-    limit: int = 50,
-    current_admin: AdminUser = Depends(get_current_admin),
-    db: Session = Depends(get_db)
-):
-    """アップロード履歴取得"""
-    uploads = db.query(UploadHistory)\
-                .order_by(UploadHistory.uploaded_at.desc())\
-                .offset(skip)\
-                .limit(limit)\
-                .all()
-    
-    return [
-        {
-            "upload_id": upload.upload_id,
-            "filename": upload.filename,
-            "status": upload.status,
-            "records_count": upload.records_count,
-            "file_size": upload.file_size,
-            "uploaded_at": upload.uploaded_at.isoformat(),
-            "processed_at": upload.processed_at.isoformat() if upload.processed_at else None,
-            "error_message": upload.error_message
-        }
-        for upload in uploads
-    ]
-
-@router.get("/sensor-mappings", response_model=List[SensorMappingResponse])
-async def get_sensor_mappings(
-    current_admin: AdminUser = Depends(get_current_admin),
-    db: Session = Depends(get_db)
-):
-    """センサマッピング一覧取得"""
-    mappings = db.query(SensorMapping).filter_by(is_active=True).all()
-    return mappings
-
 @router.get("/users-with-stats")
 async def get_users_with_stats(
     skip: int = 0,
@@ -304,13 +234,196 @@ async def get_users_with_stats(
             detail=f"Failed to get user stats: {str(e)}"
         )
 
+@router.post("/users", response_model=UserResponse)
+async def create_user(
+    user_data: UserCreate,
+    current_admin: AdminUser = Depends(get_current_admin),
+    db: Session = Depends(get_db)
+):
+    """ユーザー作成"""
+    # 既存ユーザーチェック
+    existing_user = db.query(User).filter(
+        (User.user_id == user_data.user_id) | 
+        (User.username == user_data.username)
+    ).first()
+    
+    if existing_user:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="User ID or username already exists"
+        )
+    
+    # 新規ユーザー作成
+    user = User(
+        user_id=user_data.user_id,
+        username=user_data.username,
+        email=user_data.email,
+        full_name=user_data.full_name,
+        hashed_password=get_password_hash(user_data.password)
+    )
+    
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    
+    return user
+
+@router.put("/users/{user_id}", response_model=UserResponse)
+async def update_user(
+    user_id: str,
+    user_data: UserUpdate,
+    current_admin: AdminUser = Depends(get_current_admin),
+    db: Session = Depends(get_db)
+):
+    """ユーザー情報更新"""
+    user = db.query(User).filter_by(user_id=user_id).first()
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found"
+        )
+    
+    # ユーザー名の重複チェック（自分以外で）
+    if user_data.username and user_data.username != user.username:
+        existing_user = db.query(User).filter(
+            User.username == user_data.username,
+            User.id != user.id
+        ).first()
+        if existing_user:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Username already exists"
+            )
+    
+    # 更新可能フィールドの更新
+    update_data = user_data.dict(exclude_unset=True)
+    for field, value in update_data.items():
+        if field == "password" and value:
+            # パスワードはハッシュ化
+            setattr(user, "hashed_password", get_password_hash(value))
+        elif hasattr(user, field):
+            setattr(user, field, value)
+    
+    db.commit()
+    db.refresh(user)
+    
+    return user
+
+@router.delete("/users/{user_id}")
+async def delete_user(
+    user_id: str,
+    current_admin: AdminUser = Depends(get_current_admin),
+    db: Session = Depends(get_db)
+):
+    """ユーザー削除"""
+    user = db.query(User).filter_by(user_id=user_id).first()
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found"
+        )
+    
+    try:
+        # 関連データを順番に削除
+        # 1. センサデータ
+        db.query(SensorData).filter_by(user_id=user_id).delete()
+        
+        # 2. センサマッピング
+        db.query(SensorMapping).filter_by(user_id=user_id).delete()
+        
+        # 3. ユーザー
+        db.delete(user)
+        
+        db.commit()
+        
+        return {"message": f"User {user_id} deleted successfully"}
+        
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to delete user: {str(e)}"
+        )
+
+@router.post("/users/{user_id}/reset-password")
+async def reset_user_password(
+    user_id: str,
+    request: dict,  # {"new_password": "string"}
+    current_admin: AdminUser = Depends(get_current_admin),
+    db: Session = Depends(get_db)
+):
+    """ユーザーパスワードリセット"""
+    user = db.query(User).filter_by(user_id=user_id).first()
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found"
+        )
+    
+    new_password = request.get("new_password")
+    if not new_password or len(new_password) < 6:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Password must be at least 6 characters"
+        )
+    
+    user.hashed_password = get_password_hash(new_password)
+    db.commit()
+    
+    return {"message": "Password reset successfully"}
+
+@router.get("/users/{user_id}/stats")
+async def get_user_stats(
+    user_id: str,
+    current_admin: AdminUser = Depends(get_current_admin),
+    db: Session = Depends(get_db)
+):
+    """ユーザー詳細統計取得"""
+    user = db.query(User).filter_by(user_id=user_id).first()
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found"
+        )
+    
+    try:
+        # センサー数
+        sensor_count = db.query(func.count(SensorMapping.id))\
+                        .filter_by(user_id=user_id, is_active=True)\
+                        .scalar() or 0
+        
+        # データ統計
+        data_stats = db.query(
+            func.count(SensorData.id).label('total_records'),
+            func.min(SensorData.temperature).label('min_temperature'),
+            func.max(SensorData.temperature).label('max_temperature'),
+            func.avg(SensorData.temperature).label('avg_temperature'),
+            func.min(SensorData.timestamp).label('first_data_at'),
+            func.max(SensorData.timestamp).label('last_data_at')
+        ).filter_by(user_id=user_id).first()
+        
+        return {
+            "sensor_count": sensor_count,
+            "total_records": data_stats.total_records or 0,
+            "min_temperature": data_stats.min_temperature,
+            "max_temperature": data_stats.max_temperature,
+            "avg_temperature": round(data_stats.avg_temperature, 2) if data_stats.avg_temperature else None,
+            "first_data_at": data_stats.first_data_at.isoformat() if data_stats.first_data_at else None,
+            "last_data_at": data_stats.last_data_at.isoformat() if data_stats.last_data_at else None
+        }
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get user stats: {str(e)}"
+        )
+
 @router.get("/dashboard-stats")
 async def get_admin_dashboard_stats(
     current_admin: AdminUser = Depends(get_current_admin),
     db: Session = Depends(get_db)
 ):
     """管理者ダッシュボード用の統計情報取得"""
-    from sqlalchemy import func
     from datetime import datetime, timedelta
     
     try:
@@ -355,3 +468,40 @@ async def get_admin_dashboard_stats(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to get dashboard stats: {str(e)}"
         )
+
+@router.get("/upload-history")
+async def get_upload_history(
+    skip: int = 0,
+    limit: int = 50,
+    current_admin: AdminUser = Depends(get_current_admin),
+    db: Session = Depends(get_db)
+):
+    """アップロード履歴取得"""
+    uploads = db.query(UploadHistory)\
+                .order_by(UploadHistory.uploaded_at.desc())\
+                .offset(skip)\
+                .limit(limit)\
+                .all()
+    
+    return [
+        {
+            "upload_id": upload.upload_id,
+            "filename": upload.filename,
+            "status": upload.status,
+            "records_count": upload.records_count,
+            "file_size": upload.file_size,
+            "uploaded_at": upload.uploaded_at.isoformat(),
+            "processed_at": upload.processed_at.isoformat() if upload.processed_at else None,
+            "error_message": upload.error_message
+        }
+        for upload in uploads
+    ]
+
+@router.get("/sensor-mappings", response_model=List[SensorMappingResponse])
+async def get_sensor_mappings(
+    current_admin: AdminUser = Depends(get_current_admin),
+    db: Session = Depends(get_db)
+):
+    """センサマッピング一覧取得"""
+    mappings = db.query(SensorMapping).filter_by(is_active=True).all()
+    return mappings

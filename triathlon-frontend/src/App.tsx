@@ -8,7 +8,9 @@ import { CSVUpload } from '@/pages/CSVUpload';
 import { UploadHistory } from '@/pages/UploadHistory';
 import { UserManagement } from '@/pages/UserManagement';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
-import './styles/globals.css';
+
+// スタイルインポート - 正しい順序で読み込み
+import '@/styles/globals.css';
 
 // 認証が必要なルートを保護するコンポーネント
 const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -16,7 +18,7 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) =
 
   if (isLoading) {
     return (
-      <div className="min-h-screen flex justify-center items-center">
+      <div className="min-h-screen bg-gray-50 flex justify-center items-center">
         <LoadingSpinner size="lg" />
       </div>
     );
@@ -31,7 +33,7 @@ const AdminRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen flex justify-center items-center">
+      <div className="min-h-screen bg-gray-50 flex justify-center items-center">
         <LoadingSpinner size="lg" />
       </div>
     );
@@ -54,60 +56,62 @@ const AppRoutes: React.FC = () => {
   const { isAuthenticated } = useAuth();
 
   return (
-    <Routes>
-      <Route 
-        path="/login" 
-        element={isAuthenticated ? <Navigate to="/dashboard" replace /> : <Login />} 
-      />
-      
-      <Route
-        path="/dashboard"
-        element={
-          <ProtectedRoute>
-            <Dashboard />
-          </ProtectedRoute>
-        }
-      />
-      
-      <Route
-        path="/data-detail"
-        element={
-          <ProtectedRoute>
-            <DataDetail />
-          </ProtectedRoute>
-        }
-      />
-      
-      <Route
-        path="/admin/csv-upload"
-        element={
-          <AdminRoute>
-            <CSVUpload />
-          </AdminRoute>
-        }
-      />
-      
-      <Route
-        path="/admin/upload-history"
-        element={
-          <AdminRoute>
-            <UploadHistory />
-          </AdminRoute>
-        }
-      />
-      
-      <Route
-        path="/admin/users"
-        element={
-          <AdminRoute>
-            <UserManagement />
-          </AdminRoute>
-        }
-      />
-      
-      <Route path="/" element={<Navigate to="/dashboard" replace />} />
-      <Route path="*" element={<Navigate to="/login" replace />} />
-    </Routes>
+    <div className="min-h-screen bg-gray-50">
+      <Routes>
+        <Route 
+          path="/login" 
+          element={isAuthenticated ? <Navigate to="/dashboard" replace /> : <Login />} 
+        />
+        
+        <Route
+          path="/dashboard"
+          element={
+            <ProtectedRoute>
+              <Dashboard />
+            </ProtectedRoute>
+          }
+        />
+        
+        <Route
+          path="/data-detail"
+          element={
+            <ProtectedRoute>
+              <DataDetail />
+            </ProtectedRoute>
+          }
+        />
+        
+        <Route
+          path="/admin/csv-upload"
+          element={
+            <AdminRoute>
+              <CSVUpload />
+            </AdminRoute>
+          }
+        />
+        
+        <Route
+          path="/admin/upload-history"
+          element={
+            <AdminRoute>
+              <UploadHistory />
+            </AdminRoute>
+          }
+        />
+        
+        <Route
+          path="/admin/users"
+          element={
+            <AdminRoute>
+              <UserManagement />
+            </AdminRoute>
+          }
+        />
+        
+        <Route path="/" element={<Navigate to="/dashboard" replace />} />
+        <Route path="*" element={<Navigate to="/login" replace />} />
+      </Routes>
+    </div>
   );
 };
 

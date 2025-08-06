@@ -37,16 +37,6 @@ export interface UserInfo {
   email: string | null;
   is_active: boolean;
   created_at: string;
-}
-
-export interface UserInfo {
-  id: number;
-  user_id: string;
-  username: string;
-  full_name: string | null;
-  email: string | null;
-  is_active: boolean;
-  created_at: string;
   sensor_count?: number;
   last_data_at?: string;
 }
@@ -60,7 +50,32 @@ export interface UserFormData {
   is_active: boolean;
 }
 
+export interface UserStats {
+  sensor_count: number;
+  total_records: number;
+  last_data_at: string | null;
+  avg_temperature: number | null;
+  min_temperature: number | null;
+  max_temperature: number | null;
+  first_data_at: string | null;
+}
+
+export interface DashboardStats {
+  total_users: number;
+  active_users: number;
+  inactive_users: number;
+  total_sensors: number;
+  total_data_records: number;
+  users_with_data: number;
+  users_without_data: number;
+  recent_data_count: number;
+  recent_uploads: number;
+  avg_sensors_per_user: number;
+  avg_records_per_user: number;
+}
+
 export const adminService = {
+  // CSVアップロード
   async uploadCSVFiles(sensorDataFile: File, mappingFile: File): Promise<UploadResponse> {
     const formData = new FormData();
     formData.append('sensor_data_file', sensorDataFile);
@@ -75,6 +90,7 @@ export const adminService = {
     return response.data;
   },
 
+  // アップロード履歴取得
   async getUploadHistory(skip = 0, limit = 50): Promise<UploadHistory[]> {
     const response = await api.get<UploadHistory[]>('/admin/upload-history', {
       params: { skip, limit }
@@ -82,6 +98,7 @@ export const adminService = {
     return response.data;
   },
 
+  // ユーザー一覧取得（基本）
   async getUsers(skip = 0, limit = 100, search?: string): Promise<UserInfo[]> {
     const response = await api.get<UserInfo[]>('/admin/users', {
       params: { skip, limit, search }
@@ -89,18 +106,7 @@ export const adminService = {
     return response.data;
   },
 
-  async createUser(userData: {
-    user_id: string;
-    username: string;
-    full_name?: string;
-    email?: string;
-    password: string;
-  }): Promise<UserInfo> {
-    const response = await api.post<UserInfo>('/admin/users', userData);
-    return response.data;
-  }
-
-  // ユーザー統計付きで取得
+  // ユーザー一覧取得（統計情報付き）
   async getUsersWithStats(skip = 0, limit = 1000, search?: string): Promise<UserInfo[]> {
     const response = await api.get<UserInfo[]>('/admin/users-with-stats', {
       params: { skip, limit, search }
@@ -133,34 +139,14 @@ export const adminService = {
   },
   
   // ユーザーの詳細統計取得
-  async getUserStats(userId: string): Promise<{
-    sensor_count: number;
-    total_records: number;
-    last_data_at: string | null;
-    avg_temperature: number | null;
-    min_temperature: number | null;
-    max_temperature: number | null;
-    first_data_at: string | null;
-  }> {
-    const response = await api.get(`/admin/users/${userId}/stats`);
+  async getUserStats(userId: string): Promise<UserStats> {
+    const response = await api.get<UserStats>(`/admin/users/${userId}/stats`);
     return response.data;
   },
 
   // 管理者ダッシュボード統計
-  async getDashboardStats(): Promise<{
-    total_users: number;
-    active_users: number;
-    inactive_users: number;
-    total_sensors: number;
-    total_data_records: number;
-    users_with_data: number;
-    users_without_data: number;
-    recent_data_count: number;
-    recent_uploads: number;
-    avg_sensors_per_user: number;
-    avg_records_per_user: number;
-  }> {
-    const response = await api.get('/admin/dashboard-stats');
+  async getDashboardStats(): Promise<DashboardStats> {
+    const response = await api.get<DashboardStats>('/admin/dashboard-stats');
     return response.data;
   }
 };

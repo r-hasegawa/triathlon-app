@@ -5,6 +5,7 @@ interface CardProps {
   className?: string;
   title?: string;
   subtitle?: string;
+  onClick?: () => void;
 }
 
 export const Card: React.FC<CardProps> = ({
@@ -12,16 +13,22 @@ export const Card: React.FC<CardProps> = ({
   className = '',
   title,
   subtitle,
+  onClick,
 }) => {
+  const baseClasses = 'bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden';
+  const interactiveClasses = onClick ? 'cursor-pointer hover:shadow-md transition-shadow duration-200' : '';
+  
+  const cardClasses = [baseClasses, interactiveClasses, className].filter(Boolean).join(' ');
+
   return (
-    <div className={`bg-white shadow-lg rounded-lg ${className}`}>
+    <div className={cardClasses} onClick={onClick}>
       {(title || subtitle) && (
-        <div className="px-6 py-4 border-b border-gray-200">
+        <div className="px-6 py-4 border-b border-gray-100 bg-gray-50">
           {title && (
-            <h3 className="text-lg font-medium text-gray-900">{title}</h3>
+            <h3 className="text-lg font-semibold text-gray-900 leading-6">{title}</h3>
           )}
           {subtitle && (
-            <p className="mt-1 text-sm text-gray-500">{subtitle}</p>
+            <p className="mt-1 text-sm text-gray-600">{subtitle}</p>
           )}
         </div>
       )}
