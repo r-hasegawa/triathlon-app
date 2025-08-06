@@ -1,4 +1,5 @@
 import React from 'react';
+import { clsx } from 'clsx';
 
 interface LoadingSpinnerProps {
   size?: 'sm' | 'md' | 'lg' | 'xl';
@@ -9,38 +10,44 @@ interface LoadingSpinnerProps {
 
 export const LoadingSpinner: React.FC<LoadingSpinnerProps> = ({
   size = 'md',
-  className = '',
+  className,
   text,
   variant = 'primary',
 }) => {
-  const sizeClasses = {
+  const sizeMap = {
     sm: 'h-4 w-4',
     md: 'h-8 w-8',
     lg: 'h-12 w-12',
     xl: 'h-16 w-16',
   };
 
-  const colorClasses = {
-    primary: 'text-blue-600',
-    secondary: 'text-gray-600',
-    white: 'text-white',
+  const colorMap = {
+    primary: 'border-t-primary-600',
+    secondary: 'border-t-gray-600',
+    white: 'border-t-white',
   };
 
-  const spinnerSize = sizeClasses[size];
-  const spinnerColor = colorClasses[variant];
-
   return (
-    <div className={`flex flex-col items-center justify-center space-y-2 ${className}`}>
+    <div className={clsx('flex flex-col items-center justify-center gap-2', className)}>
       <div className="relative">
-        {/* 外側の円（背景） */}
-        <div className={`${spinnerSize} rounded-full border-2 border-gray-200`}></div>
-        
-        {/* 内側の円（アニメーション） */}
-        <div className={`${spinnerSize} rounded-full border-2 border-transparent border-t-current ${spinnerColor} animate-spin absolute top-0 left-0`}></div>
+        <div 
+          className={clsx(
+            'spinner',
+            sizeMap[size],
+            colorMap[variant]
+          )}
+        />
       </div>
       
       {text && (
-        <p className={`text-sm font-medium ${spinnerColor} animate-pulse`}>
+        <p className={clsx(
+          'text-sm font-medium animate-pulse',
+          {
+            'text-primary-600': variant === 'primary',
+            'text-gray-600': variant === 'secondary',
+            'text-white': variant === 'white',
+          }
+        )}>
           {text}
         </p>
       )}
@@ -49,7 +56,9 @@ export const LoadingSpinner: React.FC<LoadingSpinnerProps> = ({
 };
 
 // プリセットローディングコンポーネント
-export const PageLoader: React.FC<{ text?: string }> = ({ text = "読み込み中..." }) => (
+export const PageLoader: React.FC<{ text?: string }> = ({ 
+  text = "読み込み中..." 
+}) => (
   <div className="min-h-screen bg-gray-50 flex items-center justify-center">
     <LoadingSpinner size="lg" text={text} />
   </div>
