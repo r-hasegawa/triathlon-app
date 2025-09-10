@@ -505,3 +505,170 @@ async def get_sensor_mappings(
     """センサマッピング一覧取得"""
     mappings = db.query(SensorMapping).filter_by(is_active=True).all()
     return mappings
+
+
+# app/routers/admin.py に追加するコード
+
+@router.post("/upload-multiple-csv")
+async def upload_multiple_csv(
+    sensor_data_files: List[UploadFile] = File(..., description="複数のセンサデータCSVファイル"),
+    sensor_mapping_file: UploadFile = File(..., description="センサマッピングCSVファイル"),
+    current_admin: AdminUser = Depends(get_current_admin),
+    db: Session = Depends(get_db)
+):
+    """
+    複数のセンサデータCSVファイルと1つのマッピングCSVファイルを処理
+    """
+    csv_service = CSVProcessingService()
+    max_size = 10 * 1024 * 1024  # 10MB
+    
+    try:
+        # マッピングファイルのサイズチェック
+        mapping_content = await sensor_mapping_file.read()
+        if len(mapping_content) > max_size:
+            raise HTTPException(
+                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                detail="マッピングファイルのサイズが10MBを超えています"
+            )
+        
+        # データファイルのサイズチェック
+        sensor_data_contents = []
+        total_data_size = 0
+        for file in sensor_data_files:
+            content = await file.read()
+            if len(content) > max_size:
+                raise HTTPException(
+                    status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                    detail=f"ファイル {file.filename} のサイズが10MBを超えています"
+                )
+            sensor_data_contents.append(content)
+            total_data_size += len(content)
+            await file.seek(0)  # ファイルポインタをリセット
+        
+        # 総サイズの制限（例：50MB）
+        if total_data_size > 50 * 1024 * 1024:
+            raise HTTPException(
+                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                detail="データファイルの合計サイズが50MBを超えています"
+            )
+        
+        # マッピングファイル保存
+        await sensor_mapping_file.seek(0)
+        mapping_path, mapping_filename = await csv_service.save_uploaded_file(sensor_mapping_file)
+        
+        # データファイル保存
+        sensor_data_paths = []
+        sensor_data_filenames = []
+        for file in sensor_data_files:
+            path, filename = await csv_service.save_uploaded_file(file)
+            sensor_data_paths.append(path)
+            sensor_data_filenames.append(filename)
+        
+        # マッピングファイルのアップロード履歴作成
+        mapping_upload = csv_service.create_upload_history(
+            admin_id=current_admin.admin_id,
+            filename=mapping_filename,
+            file_path=mapping_path,
+            file_size=len(mapping_content),
+            db=db
+        )
+        
+        # データファイルのアップロード履歴作成
+        sensor_uploads = []
+        for i, (path, filename, content) in enumerate(zip(sensor_data_paths, sensor_data_filenames, sensor_data_contents)):
+            upload = csv_service.create_upload_history(
+                admin_id=current_admin.admin_id,
+                filename=filename,
+                file_path=path,
+                file_size=len(content),
+                db=db
+            )
+            sensor_uploads.append(upload)
+        
+        # CSV構造検証
+        mapping_df = csv_service.validate_csv_structure(mapping_path, "sensor_mapping")
+        
+        # センサマッピング処理
+        mapping_count, mapping_errors = csv_service.process_sensor_mapping_csv(mapping_df, db)
+        
+        # 複数データファイル処理
+        total_data_count = 0
+        all_data_errors = []
+        file_processing_results = []
+        
+        for i, (path, filename) in enumerate(zip(sensor_data_paths, sensor_data_filenames)):
+            try:
+                # 各ファイルの構造検証
+                sensor_df = csv_service.validate_csv_structure(path, "sensor_data")
+                
+                # センサデータ処理
+                data_count, data_errors = csv_service.process_sensor_data_csv(sensor_df, mapping_df, db)
+                
+                total_data_count += data_count
+                all_data_errors.extend([f"{filename}: {error}" for error in data_errors])
+                
+                # 各ファイルの処理結果記録
+                file_result = {
+                    "filename": filename,
+                    "records_processed": data_count,
+                    "errors": data_errors
+                }
+                file_processing_results.append(file_result)
+                
+                # 個別ファイルのアップロード履歴更新
+                sensor_uploads[i].status = "completed" if not data_errors else "completed_with_errors"
+                sensor_uploads[i].records_count = data_count
+                sensor_uploads[i].processed_at = datetime.utcnow()
+                if data_errors:
+                    sensor_uploads[i].error_message = "\n".join(data_errors[:10])
+                
+            except Exception as e:
+                error_msg = f"ファイル {filename} の処理エラー: {str(e)}"
+                all_data_errors.append(error_msg)
+                file_processing_results.append({
+                    "filename": filename,
+                    "records_processed": 0,
+                    "errors": [str(e)]
+                })
+                
+                # エラーファイルのアップロード履歴更新
+                sensor_uploads[i].status = "failed"
+                sensor_uploads[i].records_count = 0
+                sensor_uploads[i].processed_at = datetime.utcnow()
+                sensor_uploads[i].error_message = str(e)
+        
+        # マッピングファイルのアップロード履歴更新
+        mapping_upload.status = "completed" if not mapping_errors else "completed_with_errors"
+        mapping_upload.records_count = mapping_count
+        mapping_upload.processed_at = datetime.utcnow()
+        if mapping_errors:
+            mapping_upload.error_message = "\n".join(mapping_errors[:10])
+        
+        db.commit()
+        
+        # 処理結果返却
+        return {
+            "message": "Multiple CSV files processed successfully",
+            "mapping_file": {
+                "filename": mapping_filename,
+                "records_processed": mapping_count,
+                "errors": mapping_errors
+            },
+            "data_files": file_processing_results,
+            "summary": {
+                "total_files_processed": len(sensor_data_files),
+                "total_records_processed": total_data_count,
+                "total_errors": len(all_data_errors),
+                "files_with_errors": len([r for r in file_processing_results if r["errors"]])
+            },
+            "errors": all_data_errors[:20] if all_data_errors else []  # 最初の20エラーのみ返却
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Multiple CSV upload error: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Multiple CSV upload failed: {str(e)}"
+        )

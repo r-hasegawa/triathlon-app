@@ -18,6 +18,27 @@ export interface UploadResponse {
   };
 }
 
+export interface MultipleUploadResponse {
+  message: string;
+  mapping_file: {
+    filename: string;
+    records_processed: number;
+    errors: string[];
+  };
+  data_files: Array<{
+    filename: string;
+    records_processed: number;
+    errors: string[];
+  }>;
+  summary: {
+    total_files_processed: number;
+    total_records_processed: number;
+    total_errors: number;
+    files_with_errors: number;
+  };
+  errors: string[];
+}
+
 export interface UploadHistory {
   upload_id: string;
   filename: string;
@@ -74,6 +95,8 @@ export interface DashboardStats {
   avg_records_per_user: number;
 }
 
+
+
 export const adminService = {
   // CSVアップロード
   async uploadCSVFiles(sensorDataFile: File, mappingFile: File): Promise<UploadResponse> {
@@ -89,6 +112,27 @@ export const adminService = {
 
     return response.data;
   },
+
+  // 複数CSVアップロード
+  async uploadMultipleCSVFiles(sensorDataFiles: File[], mappingFile: File): Promise<MultipleUploadResponse> {
+  const formData = new FormData();
+  
+  // 複数のデータファイルを追加
+  sensorDataFiles.forEach(file => {
+    formData.append('sensor_data_files', file);
+  });
+  
+  // マッピングファイルを追加
+  formData.append('sensor_mapping_file', mappingFile);
+
+  const response = await api.post<MultipleUploadResponse>('/admin/upload-multiple-csv', formData, {
+    headers: {
+      'Content-Type': 'multipart/form-data',
+    },
+  });
+
+  return response.data;
+},
 
   // アップロード履歴取得
   async getUploadHistory(skip = 0, limit = 50): Promise<UploadHistory[]> {
