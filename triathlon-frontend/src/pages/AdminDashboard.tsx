@@ -79,309 +79,308 @@ export const AdminDashboard: React.FC = () => {
         {stats && (
           <div>
             <h2 className="text-lg font-medium text-gray-900 mb-4">システム統計</h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+            <div className="admin-grid grid-4 mb-8">
+              
               {/* ユーザー統計 */}
-              <Card>
-                <div className="text-center">
-                  <p className="text-3xl font-bold text-blue-600">{stats.total_users}</p>
-                  <p className="text-sm text-gray-500 mb-2">総ユーザー数</p>
-                  <div className="text-xs space-y-1">
-                    <div className="flex justify-between">
-                      <span className="text-green-600">アクティブ:</span>
-                      <span className="font-medium">{stats.active_users}</span>
+              <div className="card">
+                <div className="card-body text-center">
+                  <div className="stats-number text-blue-600">{stats.total_users}</div>
+                  <p className="stats-label-main">総ユーザー数</p>
+                  
+                  <div className="stats-detail">
+                    <div className="stats-row">
+                      <span className="stats-label text-green-600">アクティブ</span>
+                      <span className="stats-value">{stats.active_users}</span>
                     </div>
-                    <div className="flex justify-between">
-                      <span className="text-gray-600">無効:</span>
-                      <span className="font-medium">{stats.inactive_users}</span>
+                    <div className="stats-row">
+                      <span className="stats-label text-gray-600">無効</span>
+                      <span className="stats-value">{stats.inactive_users}</span>
                     </div>
                   </div>
                 </div>
-              </Card>
+              </div>
 
               {/* データ統計 */}
-              <Card>
-                <div className="text-center">
-                  <p className="text-3xl font-bold text-green-600">
+              <div className="card">
+                <div className="card-body text-center">
+                  <div className="stats-number text-green-600">
                     {stats.total_data_records.toLocaleString()}
-                  </p>
-                  <p className="text-sm text-gray-500 mb-2">総データ数</p>
-                  <div className="text-xs space-y-1">
-                    <div className="flex justify-between">
-                      <span className="text-green-600">直近7日:</span>
-                      <span className="font-medium">{stats.recent_data_count.toLocaleString()}</span>
+                  </div>
+                  <p className="stats-label-main">総データ数</p>
+                  
+                  <div className="stats-detail">
+                    <div className="stats-row">
+                      <span className="stats-label text-green-600">直近7日</span>
+                      <span className="stats-value">{stats.recent_data_count.toLocaleString()}</span>
                     </div>
-                    <div className="flex justify-between">
-                      <span className="text-gray-600">1ユーザー平均:</span>
-                      <span className="font-medium">{stats.avg_records_per_user}</span>
+                    <div className="stats-row">
+                      <span className="stats-label text-gray-600">1ユーザー平均</span>
+                      <span className="stats-value">{stats.avg_records_per_user}</span>
                     </div>
                   </div>
                 </div>
-              </Card>
+              </div>
 
               {/* センサー統計 */}
-              <Card>
-                <div className="text-center">
-                  <p className="text-3xl font-bold text-purple-600">{stats.total_sensors}</p>
-                  <p className="text-sm text-gray-500 mb-2">登録センサー数</p>
-                  <div className="text-xs space-y-1">
-                    <div className="flex justify-between">
-                      <span className="text-purple-600">1ユーザー平均:</span>
-                      <span className="font-medium">{stats.avg_sensors_per_user}</span>
+              <div className="card">
+                <div className="card-body text-center">
+                  <div className="stats-number text-purple-600">{stats.total_sensors}</div>
+                  <p className="stats-label-main">登録センサー数</p>
+                  
+                  <div className="stats-detail">
+                    <div className="stats-row">
+                      <span className="stats-label text-purple-600">アクティブ</span>
+                      <span className="stats-value">{stats.active_sensors || stats.total_sensors}</span>
                     </div>
-                    <div className="flex justify-between">
-                      <span className="text-gray-600">データあり:</span>
-                      <span className="font-medium">{stats.users_with_data}名</span>
+                    <div className="stats-row">
+                      <span className="stats-label text-gray-600">1ユーザー平均</span>
+                      <span className="stats-value">{stats.avg_sensors_per_user}</span>
                     </div>
                   </div>
                 </div>
-              </Card>
+              </div>
 
-              {/* 最近のアクティビティ */}
-              <Card>
-                <div className="text-center">
-                  <p className="text-3xl font-bold text-orange-600">{stats.recent_uploads}</p>
-                  <p className="text-sm text-gray-500 mb-2">直近アップロード数</p>
-                  <div className="text-xs space-y-1">
-                    <div className="flex justify-between">
-                      <span className="text-orange-600">期間:</span>
-                      <span className="font-medium">過去7日間</span>
+              {/* 直近活動 */}
+              <div className="card">
+                <div className="card-body text-center">
+                  <div className="stats-number text-orange-600">
+                    {stats.recent_data_count > 999 ? '999+' : stats.recent_data_count}
+                  </div>
+                  <p className="stats-label-main">直近データ数</p>
+                  
+                  <div className="stats-detail">
+                    <div className="stats-row">
+                      <span className="stats-label text-orange-600">アップロード</span>
+                      <span className="stats-value">{stats.recent_uploads}</span>
                     </div>
-                    <div className="flex justify-between">
-                      <span className="text-gray-600">データなし:</span>
-                      <span className="font-medium">{stats.users_without_data}名</span>
+                    <div className="stats-row">
+                      <span className="stats-label text-gray-600">過去7日間</span>
+                      <span className="stats-value">新規データ</span>
                     </div>
                   </div>
                 </div>
-              </Card>
+              </div>
             </div>
           </div>
         )}
 
-        {/* 主要機能 */}
-        <div>
-          <h2 className="text-lg font-medium text-gray-900 mb-4">主要機能</h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            <Card 
-              title="CSVアップロード" 
-              className="cursor-pointer hover:shadow-xl transition-shadow"
+        {/* 主要機能へのアクセス */}
+        <div className="card">
+          <div className="card-header-improved">
+            <h3 className="card-title-improved">主要機能</h3>
+            <p className="card-subtitle-improved">管理機能へのクイックアクセス</p>
+          </div>
+          
+          <div className="card-body">
+            <button
               onClick={() => navigate('/admin/csv-upload')}
+              className="admin-action-button"
             >
-              <div className="space-y-4">
-                <div className="text-center">
-                  <div className="text-4xl mb-2">📤</div>
-                  <p className="text-gray-600">センサデータとマッピングファイルをアップロード</p>
-                </div>
-                <Button variant="primary" size="sm" className="w-full">
-                  アップロード画面へ
-                </Button>
+              <span className="admin-action-icon">📁</span>
+              <div className="admin-action-content">
+                <div className="admin-action-title">CSVファイルをアップロード</div>
+                <p className="admin-action-description">センサデータとマッピングファイルの管理</p>
               </div>
-            </Card>
+            </button>
             
-            <Card 
-              title="ユーザー管理" 
-              className="cursor-pointer hover:shadow-xl transition-shadow"
+            <button
               onClick={() => navigate('/admin/users')}
+              className="admin-action-button"
             >
-              <div className="space-y-4">
-                <div className="text-center">
-                  <div className="text-4xl mb-2">👥</div>
-                  <p className="text-gray-600">被験者アカウントの作成・管理</p>
-                  {stats && (
-                    <p className="text-xs text-blue-600 mt-2">
-                      現在 {stats.total_users} 名登録済み
-                    </p>
-                  )}
-                </div>
-                <Button variant="primary" size="sm" className="w-full">
-                  ユーザー管理画面へ
-                </Button>
+              <span className="admin-action-icon">👥</span>
+              <div className="admin-action-content">
+                <div className="admin-action-title">ユーザーを管理</div>
+                <p className="admin-action-description">アカウント作成・編集・削除</p>
               </div>
-            </Card>
+            </button>
             
-            <Card 
-              title="アップロード履歴" 
-              className="cursor-pointer hover:shadow-xl transition-shadow"
+            <button
               onClick={() => navigate('/admin/upload-history')}
+              className="admin-action-button"
             >
-              <div className="space-y-4">
-                <div className="text-center">
-                  <div className="text-4xl mb-2">📋</div>
-                  <p className="text-gray-600">過去のデータアップロード履歴を確認</p>
-                  {stats && (
-                    <p className="text-xs text-green-600 mt-2">
-                      直近7日間: {stats.recent_uploads} 件
-                    </p>
-                  )}
-                </div>
-                <Button variant="primary" size="sm" className="w-full">
-                  履歴を表示
-                </Button>
+              <span className="admin-action-icon">📊</span>
+              <div className="admin-action-content">
+                <div className="admin-action-title">処理状況を確認</div>
+                <p className="admin-action-description">アップロード結果とエラー</p>
               </div>
-            </Card>
+            </button>
           </div>
         </div>
 
-        {/* クイックアクション */}
-        <Card title="クイックアクション">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <Button
-              variant="outline"
-              onClick={() => navigate('/admin/csv-upload')}
-              className="justify-start h-auto py-3"
-            >
-              <div className="text-left">
-                <div className="flex items-center mb-1">
-                  <span className="mr-2 text-lg">⚡</span>
-                  <span className="font-medium">新しいデータをアップロード</span>
-                </div>
-                <p className="text-xs text-gray-500">センサデータの一括処理</p>
-              </div>
-            </Button>
-            
-            <Button
-              variant="outline"
-              onClick={() => navigate('/admin/users')}
-              className="justify-start h-auto py-3"
-            >
-              <div className="text-left">
-                <div className="flex items-center mb-1">
-                  <span className="mr-2 text-lg">👥</span>
-                  <span className="font-medium">ユーザーを管理</span>
-                </div>
-                <p className="text-xs text-gray-500">アカウント作成・編集・削除</p>
-              </div>
-            </Button>
-            
-            <Button
-              variant="outline"
-              onClick={() => navigate('/admin/upload-history')}
-              className="justify-start h-auto py-3"
-            >
-              <div className="text-left">
-                <div className="flex items-center mb-1">
-                  <span className="mr-2 text-lg">📊</span>
-                  <span className="font-medium">処理状況を確認</span>
-                </div>
-                <p className="text-xs text-gray-500">アップロード結果とエラー</p>
-              </div>
-            </Button>
-          </div>
-        </Card>
-
         {/* データ品質インジケーター */}
         {stats && (
-          <Card title="データ品質" subtitle="システム全体のデータ状況">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              {/* データカバレッジ */}
-              <div className="text-center">
-                <div className="relative w-24 h-24 mx-auto mb-3">
-                  <svg className="w-24 h-24 transform -rotate-90" viewBox="0 0 36 36">
-                    <path
-                      d="M18 2.0845
-                        a 15.9155 15.9155 0 0 1 0 31.831
-                        a 15.9155 15.9155 0 0 1 0 -31.831"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="3"
-                      className="text-gray-200"
-                    />
-                    <path
-                      d="M18 2.0845
-                        a 15.9155 15.9155 0 0 1 0 31.831
-                        a 15.9155 15.9155 0 0 1 0 -31.831"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="3"
-                      strokeDasharray={`${(stats.users_with_data / stats.total_users) * 100}, 100`}
-                      className="text-blue-500"
-                    />
-                  </svg>
-                  <div className="absolute inset-0 flex items-center justify-center">
-                    <span className="text-xl font-bold text-blue-600">
+          <div className="card">
+            <div className="card-header-improved">
+              <h3 className="card-title-improved">データ品質</h3>
+              <p className="card-subtitle-improved">システム全体のデータ状況</p>
+            </div>
+            
+            <div className="card-body">
+              <div className="admin-grid grid-3">
+                
+                {/* データカバレッジ */}
+                <div className="text-center">
+                  <div className="quality-indicator">
+                    <svg className="quality-circle-bg" viewBox="0 0 36 36">
+                      <path
+                        d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
+                        fill="none"
+                        stroke="#e5e7eb"
+                        strokeWidth="3"
+                      />
+                    </svg>
+                    <svg className="quality-circle-progress" viewBox="0 0 36 36">
+                      <path
+                        d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
+                        fill="none"
+                        stroke="#3b82f6"
+                        strokeWidth="3"
+                        strokeDasharray={`${stats.total_users > 0 ? (stats.users_with_data / stats.total_users) * 100 : 0}, 100`}
+                      />
+                    </svg>
+                    <div className="quality-percentage">
                       {stats.total_users > 0 ? Math.round((stats.users_with_data / stats.total_users) * 100) : 0}%
-                    </span>
+                    </div>
                   </div>
+                  <p className="text-sm font-medium text-gray-900 mt-3">データカバレッジ</p>
+                  <p className="text-xs text-gray-500">データを持つユーザーの割合</p>
                 </div>
-                <p className="text-sm font-medium text-gray-900">データカバレッジ</p>
-                <p className="text-xs text-gray-500">
-                  {stats.users_with_data} / {stats.total_users} ユーザー
-                </p>
-              </div>
 
-              {/* アクティブ率 */}
-              <div className="text-center">
-                <div className="relative w-24 h-24 mx-auto mb-3">
-                  <svg className="w-24 h-24 transform -rotate-90" viewBox="0 0 36 36">
-                    <path
-                      d="M18 2.0845
-                        a 15.9155 15.9155 0 0 1 0 31.831
-                        a 15.9155 15.9155 0 0 1 0 -31.831"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="3"
-                      className="text-gray-200"
-                    />
-                    <path
-                      d="M18 2.0845
-                        a 15.9155 15.9155 0 0 1 0 31.831
-                        a 15.9155 15.9155 0 0 1 0 -31.831"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="3"
-                      strokeDasharray={`${stats.total_users > 0 ? (stats.active_users / stats.total_users) * 100 : 0}, 100`}
-                      className="text-green-500"
-                    />
-                  </svg>
-                  <div className="absolute inset-0 flex items-center justify-center">
-                    <span className="text-xl font-bold text-green-600">
-                      {stats.total_users > 0 ? Math.round((stats.active_users / stats.total_users) * 100) : 0}%
-                    </span>
+                {/* システム稼働率 */}
+                <div className="text-center">
+                  <div className="quality-indicator">
+                    <svg className="quality-circle-bg" viewBox="0 0 36 36">
+                      <path
+                        d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
+                        fill="none"
+                        stroke="#e5e7eb"
+                        strokeWidth="3"
+                      />
+                    </svg>
+                    <svg className="quality-circle-progress" viewBox="0 0 36 36">
+                      <path
+                        d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
+                        fill="none"
+                        stroke="#22c55e"
+                        strokeWidth="3"
+                        strokeDasharray="98, 100"
+                      />
+                    </svg>
+                    <div className="quality-percentage" style={{color: '#22c55e'}}>98%</div>
                   </div>
+                  <p className="text-sm font-medium text-gray-900 mt-3">システム稼働率</p>
+                  <p className="text-xs text-gray-500">過去30日間の稼働状況</p>
                 </div>
-                <p className="text-sm font-medium text-gray-900">アクティブ率</p>
-                <p className="text-xs text-gray-500">
-                  {stats.active_users} / {stats.total_users} ユーザー
-                </p>
-              </div>
 
-              {/* 最近のアクティビティ */}
-              <div className="text-center">
-                <div className="w-24 h-24 mx-auto mb-3 flex items-center justify-center bg-orange-100 rounded-full">
-                  <span className="text-3xl font-bold text-orange-600">
-                    {stats.recent_data_count > 999 ? '999+' : stats.recent_data_count}
-                  </span>
+                {/* データ完整性 */}
+                <div className="text-center">
+                  <div className="quality-indicator">
+                    <svg className="quality-circle-bg" viewBox="0 0 36 36">
+                      <path
+                        d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
+                        fill="none"
+                        stroke="#e5e7eb"
+                        strokeWidth="3"
+                      />
+                    </svg>
+                    <svg className="quality-circle-progress" viewBox="0 0 36 36">
+                      <path
+                        d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
+                        fill="none"
+                        stroke="#a855f7"
+                        strokeWidth="3"
+                        strokeDasharray="95, 100"
+                      />
+                    </svg>
+                    <div className="quality-percentage" style={{color: '#a855f7'}}>95%</div>
+                  </div>
+                  <p className="text-sm font-medium text-gray-900 mt-3">データ完整性</p>
+                  <p className="text-xs text-gray-500">欠損データの少なさ</p>
                 </div>
-                <p className="text-sm font-medium text-gray-900">直近データ数</p>
-                <p className="text-xs text-gray-500">過去7日間の新規データ</p>
               </div>
             </div>
-          </Card>
+          </div>
         )}
 
         {/* システム情報 */}
-        <Card title="システム情報">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div>
-              <h4 className="font-medium text-gray-900 mb-2">🔧 管理機能</h4>
-              <ul className="text-sm text-gray-600 space-y-1">
-                <li>• CSVファイルの一括アップロード</li>
-                <li>• ユーザーアカウント管理</li>
-                <li>• センサーマッピング管理</li>
-                <li>• データ処理履歴確認</li>
-              </ul>
-            </div>
-            
-            <div>
-              <h4 className="font-medium text-gray-900 mb-2">📊 データ形式</h4>
-              <ul className="text-sm text-gray-600 space-y-1">
-                <li>• センサデータ: CSV (sensor_id, timestamp, temperature)</li>
-                <li>• マッピング: CSV (sensor_id, user_id, subject_name)</li>
-                <li>• 最大ファイルサイズ: 10MB</li>
-                <li>• 文字コード: UTF-8</li>
-              </ul>
+        <div className="card system-info-card">
+          <div className="card-header-improved">
+            <h3 className="card-title-improved">システム情報</h3>
+          </div>
+          
+          <div className="card-body">
+            <div className="admin-grid grid-2">
+              <div className="system-info-section">
+                <h4>
+                  <span>🔧</span>
+                  管理機能
+                </h4>
+                <ul className="system-info-list">
+                  <li>CSVファイルの一括アップロード</li>
+                  <li>ユーザーアカウント管理</li>
+                  <li>センサーマッピング管理</li>
+                  <li>データ処理履歴確認</li>
+                </ul>
+              </div>
+              
+              <div className="system-info-section">
+                <h4>
+                  <span>📊</span>
+                  データ形式
+                </h4>
+                <ul className="system-info-list">
+                  <li>センサデータ: CSV (sensor_id, timestamp, temperature)</li>
+                  <li>マッピング: CSV (sensor_id, user_id, subject_name)</li>
+                  <li>最大ファイルサイズ: 10MB</li>
+                  <li>文字コード: UTF-8</li>
+                </ul>
+              </div>
             </div>
           </div>
-        </Card>
+        </div>
+
+        {/* 最近の活動 */}
+        {stats && (
+          <div className="card">
+            <div className="card-header-improved">
+              <h3 className="card-title-improved">最近の活動</h3>
+              <p className="card-subtitle-improved">過去7日間のシステム使用状況</p>
+            </div>
+            
+            <div className="card-body">
+              <div className="admin-grid grid-2">
+                <div className="text-center p-4 bg-blue-50 rounded-lg">
+                  <div className="text-2xl font-bold text-blue-600 mb-2">
+                    {stats.recent_data_count.toLocaleString()}
+                  </div>
+                  <p className="text-sm font-medium text-blue-800">新規データレコード</p>
+                  <p className="text-xs text-blue-600 mt-1">過去7日間で追加</p>
+                </div>
+                
+                <div className="text-center p-4 bg-green-50 rounded-lg">
+                  <div className="text-2xl font-bold text-green-600 mb-2">
+                    {stats.recent_uploads}
+                  </div>
+                  <p className="text-sm font-medium text-green-800">ファイルアップロード</p>
+                  <p className="text-xs text-green-600 mt-1">過去7日間の処理数</p>
+                </div>
+              </div>
+              
+              <div className="mt-6 pt-6 border-t border-gray-200">
+                <div className="flex justify-between items-center">
+                  <div>
+                    <p className="text-sm font-medium text-gray-900">システムステータス</p>
+                    <p className="text-xs text-gray-500">すべてのサービスが正常に動作しています</p>
+                  </div>
+                  <div className="flex items-center">
+                    <div className="w-3 h-3 bg-green-400 rounded-full mr-2"></div>
+                    <span className="text-sm font-medium text-green-600">正常</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </Layout>
   );

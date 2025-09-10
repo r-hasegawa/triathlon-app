@@ -1,0 +1,96 @@
+# === Python/FastAPI Backend ===
+# Python環境
+triathlon-backend/venv/
+triathlon-backend/__pycache__/
+triathlon-backend/**/__pycache__/
+triathlon-backend/*.py[cod]
+triathlon-backend/*$py.class
+triathlon-backend/.pytest_cache/
+triathlon-backend/.coverage
+triathlon-backend/htmlcov/
+
+# FastAPI/Python固有
+triathlon-backend/.env
+triathlon-backend/.env.local
+triathlon-backend/.env.production
+
+# データベースファイル（開発用SQLite）
+triathlon-backend/data/*.db
+triathlon-backend/data/*.sqlite
+triathlon-backend/data/*.sqlite3
+
+# アップロードファイル（機密データの場合）
+# triathlon-backend/uploads/csv/*.csv
+# ↑サンプルファイルは残したい場合はコメントアウト
+
+# ログファイル
+triathlon-backend/logs/
+triathlon-backend/*.log
+
+# === React/Vite Frontend ===
+# Node.js
+triathlon-frontend/node_modules/
+triathlon-frontend/npm-debug.log*
+triathlon-frontend/yarn-debug.log*
+triathlon-frontend/yarn-error.log*
+triathlon-frontend/pnpm-debug.log*
+triathlon-frontend/lerna-debug.log*
+
+# Viteビルド成果物
+triathlon-frontend/dist/
+triathlon-frontend/dist-ssr/
+triathlon-frontend/.vite/
+
+# 環境変数
+triathlon-frontend/.env
+triathlon-frontend/.env.local
+triathlon-frontend/.env.development.local
+triathlon-frontend/.env.test.local
+triathlon-frontend/.env.production.local
+
+# TypeScript
+triathlon-frontend/*.tsbuildinfo
+
+# === 共通設定 ===
+# IDE・エディタ
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS固有
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# 一時ファイル
+*.tmp
+*.temp
+*.bak
+*.backup
+
+# === プロジェクト固有 ===
+# 機密情報
+config/secrets/
+*.key
+*.pem
+*.p12
+
+# テストカバレッジ（全体）
+coverage/
+.nyc_output/
+
+# ドキュメント生成物
+docs/_build/
+docs/build/
+
+# === Docker関連（将来用） ===
+# Docker
+.dockerignore
+Dockerfile.local
+docker-compose.override.yml

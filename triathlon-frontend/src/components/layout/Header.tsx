@@ -13,27 +13,31 @@ export const Header: React.FC = () => {
 
   return (
     <header className="sticky top-0 z-40 border-b border-gray-200 bg-white shadow-sm">
-      <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+      {/* フルワイドコンテナ */}
+      <div className="w-full px-4 sm:px-6 lg:px-8">
         <div className="flex h-16 items-center justify-between">
-          {/* ロゴ・タイトル */}
-          <div className="flex items-center gap-4">
+          
+          {/* ロゴ・タイトル部分 */}
+          <div className="flex items-center flex-shrink-0">
             <div className="flex items-center">
-              <div className="mr-3 flex h-8 w-8 items-center justify-center rounded-lg bg-primary-600">
+              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary-600 mr-4">
                 <svg className="h-5 w-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
                 </svg>
               </div>
               
-              <div>
-                <h1 className="hidden text-xl font-bold text-gray-900 sm:block">
+              {/* レスポンシブタイトル */}
+              <div className="flex flex-col mr-4">
+                <h1 className="hidden sm:block text-lg lg:text-xl font-bold text-gray-900 leading-tight">
                   トライアスロンセンサデータシステム
                 </h1>
-                <h1 className="block text-lg font-bold text-gray-900 sm:hidden">
+                <h1 className="block sm:hidden text-base font-bold text-gray-900">
                   センサデータシステム
                 </h1>
               </div>
             </div>
             
+            {/* 管理者バッジ */}
             {isAdmin && (
               <span className="badge badge-primary hidden sm:inline-flex">
                 管理者
@@ -41,21 +45,22 @@ export const Header: React.FC = () => {
             )}
           </div>
           
-          {/* ユーザー情報・ログアウト */}
-          <div className="flex items-center gap-4">
-            {/* ユーザー情報 */}
-            <div className="hidden text-right sm:block">
-              <div className="text-sm font-medium text-gray-900">
+          {/* ユーザー情報・ログアウト部分 */}
+          <div className="flex items-center gap-4 flex-shrink-0">
+            
+            {/* デスクトップ用ユーザー情報 */}
+            <div className="hidden sm:block text-right mr-2">
+              <div className="text-sm font-medium text-gray-900 truncate max-w-40 lg:max-w-none">
                 {user.full_name || user.username}
               </div>
               {isAdmin && (
-                <div className="text-xs text-gray-500">
+                <div className="text-xs text-gray-500 truncate">
                   {user.role} • {user.admin_id || user.user_id}
                 </div>
               )}
             </div>
             
-            {/* モバイル用ユーザー表示 */}
+            {/* モバイル用ユーザーアイコン */}
             <div className="block sm:hidden">
               <div className="flex h-8 w-8 items-center justify-center rounded-full bg-gray-200">
                 <svg className="h-5 w-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -77,6 +82,7 @@ export const Header: React.FC = () => {
               <span className="hidden sm:inline">ログアウト</span>
             </Button>
           </div>
+          
         </div>
       </div>
     </header>

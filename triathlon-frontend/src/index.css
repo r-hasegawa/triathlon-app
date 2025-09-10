@@ -1,72 +1,162 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+/* globals.cssをインポート */
+@import './styles/globals.css';
 
+/* 既存のindex.cssの設定を一部残すが、競合する部分を修正 */
+
+/* フォント設定の調整 */
 :root {
-  font-family: system-ui, Avenir, Helvetica, Arial, sans-serif;
-  line-height: 1.5;
-  font-weight: 400;
-
-  color-scheme: light dark;
-  color: rgba(255, 255, 255, 0.87);
-  background-color: #242424;
-
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
+/* リンクスタイルの調整（globals.cssの設定を優先） */
 a {
-  font-weight: 500;
-  color: #646cff;
+  color: inherit;
   text-decoration: inherit;
 }
+
 a:hover {
-  color: #535bf2;
+  text-decoration: underline;
 }
 
+/* bodyのスタイルをglobals.cssに統一 */
 body {
   margin: 0;
-  display: flex;
-  place-items: center;
-  min-width: 320px;
   min-height: 100vh;
+  /* globals.cssの設定を優先するため、他の設定は削除 */
 }
 
-h1 {
-  font-size: 3.2em;
-  line-height: 1.1;
-}
-
+/* ボタンの基本スタイル（globals.cssのbtnクラスと統合） */
 button {
   border-radius: 8px;
   border: 1px solid transparent;
-  padding: 0.6em 1.2em;
-  font-size: 1em;
-  font-weight: 500;
   font-family: inherit;
-  background-color: #1a1a1a;
   cursor: pointer;
-  transition: border-color 0.25s;
-}
-button:hover {
-  border-color: #646cff;
-}
-button:focus,
-button:focus-visible {
-  outline: 4px auto -webkit-focus-ring-color;
+  transition: border-color 0.25s, background-color 0.25s;
 }
 
-@media (prefers-color-scheme: light) {
-  :root {
-    color: #213547;
-    background-color: #ffffff;
+button:focus,
+button:focus-visible {
+  outline: 2px solid var(--color-primary-600);
+  outline-offset: 2px;
+}
+
+/* h1タグのスタイル調整 */
+h1 {
+  font-weight: var(--font-weight-bold);
+  line-height: 1.1;
+  margin: 0;
+}
+
+/* プロジェクト固有のスタイル */
+.triathlon-header {
+  background: linear-gradient(135deg, var(--color-primary-600) 0%, var(--color-primary-700) 100%);
+}
+
+.triathlon-card {
+  border: 1px solid var(--color-gray-200);
+  box-shadow: var(--shadow-sm);
+  transition: box-shadow 0.2s ease, transform 0.2s ease;
+}
+
+.triathlon-card:hover {
+  box-shadow: var(--shadow-md);
+  transform: translateY(-2px);
+}
+
+/* センサデータ表示用のカスタムスタイル */
+.sensor-data-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: var(--spacing-6);
+}
+
+@media (min-width: 768px) {
+  .sensor-data-grid {
+    grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
   }
-  a:hover {
-    color: #747bff;
+}
+
+/* チャート用コンテナ */
+.chart-container {
+  position: relative;
+  width: 100%;
+  height: 400px;
+  background: white;
+  border-radius: var(--radius-lg);
+  padding: var(--spacing-4);
+  box-shadow: var(--shadow-sm);
+}
+
+@media (max-width: 768px) {
+  .chart-container {
+    height: 300px;
+    padding: var(--spacing-3);
   }
-  button {
-    background-color: #f9f9f9;
+}
+
+/* データテーブルのスクロール対応 */
+.data-table-container {
+  overflow-x: auto;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--color-gray-200);
+  background: white;
+}
+
+.data-table-container::-webkit-scrollbar {
+  height: 6px;
+}
+
+.data-table-container::-webkit-scrollbar-track {
+  background: var(--color-gray-100);
+}
+
+.data-table-container::-webkit-scrollbar-thumb {
+  background: var(--color-gray-400);
+  border-radius: 3px;
+}
+
+/* モバイル対応のヘッダー調整 */
+@media (max-width: 640px) {
+  .mobile-header-title {
+    font-size: var(--font-size-base);
+    line-height: 1.2;
   }
+  
+  .mobile-user-menu {
+    position: relative;
+  }
+}
+
+/* アクセシビリティ改善 */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ハイコントラストモード対応 */
+@media (prefers-contrast: high) {
+  .btn {
+    border-width: 2px;
+  }
+  
+  .card {
+    border-width: 2px;
+  }
+  
+  .input {
+    border-width: 2px;
+  }
+}
+
+/* ダークモード準備（将来の実装用） */
+@media (prefers-color-scheme: dark) {
+  /* ダークモードは現在未対応だが、将来の拡張のために残しておく */
 }
