@@ -5,5 +5,16 @@ const navigationItems = [
   { label: 'ユーザー管理', path: '/admin/users' },
   { label: 'マルチセンサーアップロード', path: '/admin/multi-sensor' }, // 🆕
   { label: '大会管理', path: '/admin/competitions' },
-  // ❌ 古いCSVアップロードは削除
+  
+  {
+    name: 'マルチセンサー管理',
+    href: '/multi-sensor/upload',
+    icon: SensorIcon
+  },
+  {
+    name: 'データ状況確認', 
+    href: '/multi-sensor/status',
+    icon: ChartIcon
+  }
+  
 ];

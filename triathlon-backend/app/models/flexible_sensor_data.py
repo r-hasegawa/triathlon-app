@@ -8,6 +8,7 @@ from sqlalchemy import Column, Integer, String, Float, DateTime, Text, ForeignKe
 from sqlalchemy.orm import relationship
 from app.database import Base
 import enum
+import json
 
 class SensorDataStatus(str, enum.Enum):
     """センサーデータの状態"""
@@ -24,7 +25,7 @@ class SensorType(str, enum.Enum):
     WBGT = "wbgt"                            # WBGT環境データ
     OTHER = "other"                          # その他
 
-# === 🆕 生センサーデータテーブル（マッピング不要） ===
+# === 生センサーデータテーブル（マッピング不要） ===
 
 class RawSensorData(Base):
     """生センサーデータ - マッピングなしでも保存"""
@@ -43,22 +44,16 @@ class RawSensorData(Base):
     # マッピング状態
     mapping_status = Column(Enum(SensorDataStatus), default=SensorDataStatus.UNMAPPED, index=True)
     mapped_user_id = Column(String(50), ForeignKey("users.user_id"), nullable=True, index=True)
+    mapped_at = Column(DateTime, nullable=True)
     
     # メタデータ
-    upload_batch_id = Column(String(100), nullable=True, index=True)  # アップロードバッチ識別
+    upload_batch_id = Column(String(100), nullable=True, index=True)
     data_source = Column(String(100), nullable=True)
     created_at = Column(DateTime, server_default=func.now())
-    mapped_at = Column(DateTime, nullable=True)
-
-    # リレーション（循環インポートを避けるため文字列で参照）
+    
+    # リレーション
     competition = relationship("Competition")
     mapped_user = relationship("User", foreign_keys=[mapped_user_id])
-    
-    # 専用テーブルへのリレーション
-    skin_temperature = relationship("SkinTemperatureData", back_populates="raw_data", uselist=False)
-    core_temperature = relationship("CoreTemperatureData", back_populates="raw_data", uselist=False)
-    heart_rate = relationship("HeartRateData", back_populates="raw_data", uselist=False)
-    wbgt = relationship("WBGTData", back_populates="raw_data", uselist=False)
     
     # インデックス
     __table_args__ = (
@@ -69,15 +64,13 @@ class RawSensorData(Base):
     
     def get_data_as_dict(self):
         """データ値をPython辞書として取得"""
-        import json
         return json.loads(self.data_values) if self.data_values else {}
     
     def set_data_from_dict(self, data_dict):
         """Python辞書からデータ値を設定"""
-        import json
         self.data_values = json.dumps(data_dict)
 
-# === 🆕 センサー種別ごとの専用テーブル ===
+# === センサー種別ごとの専用テーブル ===
 
 class SkinTemperatureData(Base):
     """体表温データ（halshare）"""
@@ -92,8 +85,9 @@ class SkinTemperatureData(Base):
     
     # 体表温固有データ
     skin_temperature = Column(Float, nullable=False)
-    sensor_location = Column(String(50), nullable=True)  # センサー装着位置
-    ambient_temperature = Column(Float, nullable=True)   # 周囲温度
+    sensor_location = Column(String(50), nullable=True)
+    ambient_temperature = Column(Float, nullable=True)
+    battery_level = Column(Float, nullable=True)
     
     created_at = Column(DateTime, server_default=func.now())
     
@@ -108,17 +102,16 @@ class CoreTemperatureData(Base):
     
     id = Column(Integer, primary_key=True, index=True)
     raw_data_id = Column(Integer, ForeignKey("raw_sensor_data.id"), nullable=False, unique=True)
-    monitor_id = Column(String(100), nullable=False, index=True)  # モニターID
-    capsule_id = Column(String(100), nullable=False, index=True)  # カプセルID
+    sensor_id = Column(String(100), nullable=False, index=True)
     user_id = Column(String(50), ForeignKey("users.user_id"), nullable=True, index=True)
     competition_id = Column(String(50), ForeignKey("competitions.competition_id"), nullable=True, index=True)
     timestamp = Column(DateTime, nullable=False, index=True)
     
     # カプセル体温固有データ
     core_temperature = Column(Float, nullable=False)
-    battery_level = Column(Float, nullable=True)
+    capsule_id = Column(String(50), nullable=True)
     signal_strength = Column(Float, nullable=True)
-    capsule_status = Column(String(50), nullable=True)
+    battery_level = Column(Float, nullable=True)
     
     created_at = Column(DateTime, server_default=func.now())
     
@@ -133,7 +126,7 @@ class HeartRateData(Base):
     
     id = Column(Integer, primary_key=True, index=True)
     raw_data_id = Column(Integer, ForeignKey("raw_sensor_data.id"), nullable=False, unique=True)
-    device_id = Column(String(100), nullable=False, index=True)
+    sensor_id = Column(String(100), nullable=False, index=True)
     user_id = Column(String(50), ForeignKey("users.user_id"), nullable=True, index=True)
     competition_id = Column(String(50), ForeignKey("competitions.competition_id"), nullable=True, index=True)
     timestamp = Column(DateTime, nullable=False, index=True)
@@ -157,8 +150,8 @@ class WBGTData(Base):
     __tablename__ = "wbgt_data"
     
     id = Column(Integer, primary_key=True, index=True)
-    raw_data_id = Column(Integer, ForeignKey("raw_sensor_data.id"), nullable=False, unique=True)
-    station_id = Column(String(100), nullable=False, index=True)  # 測定局ID
+    raw_data_id = Column(Integer, ForeignKey("raw_sensor_data.id"), nullable=True)
+    station_id = Column(String(100), nullable=False, index=True)
     competition_id = Column(String(50), ForeignKey("competitions.competition_id"), nullable=True, index=True)
     timestamp = Column(DateTime, nullable=False, index=True)
     
@@ -176,7 +169,7 @@ class WBGTData(Base):
     raw_data = relationship("RawSensorData")
     competition = relationship("Competition")
 
-# === 🆕 柔軟なセンサーマッピング ===
+# === 柔軟なセンサーマッピング ===
 
 class FlexibleSensorMapping(Base):
     """柔軟なセンサーマッピング"""
@@ -194,8 +187,8 @@ class FlexibleSensorMapping(Base):
     notes = Column(Text, nullable=True)
     
     # 適用期間
-    effective_from = Column(DateTime, nullable=True)  # 適用開始日時
-    effective_to = Column(DateTime, nullable=True)    # 適用終了日時
+    effective_from = Column(DateTime, nullable=True)
+    effective_to = Column(DateTime, nullable=True)
     is_active = Column(Boolean, default=True)
     
     created_at = Column(DateTime, server_default=func.now())
@@ -205,13 +198,13 @@ class FlexibleSensorMapping(Base):
     user = relationship("User")
     competition = relationship("Competition")
     
-    # ユニーク制約：同一大会・同一センサー種別内でセンサーIDは一意
+    # ユニーク制約
     __table_args__ = (
         Index('idx_sensor_mapping_unique', 'sensor_id', 'sensor_type', 'competition_id', unique=True),
         Index('idx_user_sensor_type', 'user_id', 'sensor_type', 'competition_id'),
     )
 
-# === 🆕 データ統合ビュー（既存互換性のため） ===
+# === データ統合ビュー（既存互換性のため） ===
 
 class SensorDataView(Base):
     """既存システムとの互換性のための統合ビュー"""
@@ -225,7 +218,7 @@ class SensorDataView(Base):
     timestamp = Column(DateTime, nullable=False, index=True)
     
     # 共通データ項目
-    primary_value = Column(Float, nullable=True)  # メイン値（温度 or 心拍数）
+    primary_value = Column(Float, nullable=True)    # メイン値（温度 or 心拍数）
     secondary_value = Column(Float, nullable=True)  # サブ値
     raw_data_id = Column(Integer, ForeignKey("raw_sensor_data.id"), nullable=False)
     

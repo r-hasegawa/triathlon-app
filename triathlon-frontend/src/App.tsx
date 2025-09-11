@@ -8,7 +8,8 @@ import { CSVUpload } from '@/pages/CSVUpload';
 import { CompetitionManagement } from '@/pages/CompetitionManagement';
 import { UploadHistory } from '@/pages/UploadHistory';
 import { UserManagement } from '@/pages/UserManagement';
-import { MultiSensorUpload } from '@/pages/MultiSensorUpload'; // 🆕 追加
+import { MultiSensorUpload } from '@/pages/MultiSensorUpload';
+import { MultiSensorStatus } from '@/pages/MultiSensorStatus';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import { ErrorBoundary } from '@/components/ui/ErrorBoundary';
 
@@ -74,6 +75,23 @@ const AppRoutes: React.FC = () => {
                 <Dashboard />
               </ProtectedRoute>
             }
+          />
+
+          <Route 
+            path="/multi-sensor/upload" 
+            element={
+              <AdminRoute>
+                <MultiSensorUpload />
+              </AdminRoute>
+            } 
+          />
+          <Route 
+            path="/multi-sensor/status" 
+            element={
+              <AdminRoute>
+                <MultiSensorStatus />
+              </AdminRoute>
+            } 
           />
           
           <Route
