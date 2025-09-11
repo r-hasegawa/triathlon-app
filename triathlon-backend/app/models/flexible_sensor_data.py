@@ -49,10 +49,16 @@ class RawSensorData(Base):
     data_source = Column(String(100), nullable=True)
     created_at = Column(DateTime, server_default=func.now())
     mapped_at = Column(DateTime, nullable=True)
-    
-    # リレーション
+
+    # リレーション（循環インポートを避けるため文字列で参照）
     competition = relationship("Competition")
-    mapped_user = relationship("User")
+    mapped_user = relationship("User", foreign_keys=[mapped_user_id])
+    
+    # 専用テーブルへのリレーション
+    skin_temperature = relationship("SkinTemperatureData", back_populates="raw_data", uselist=False)
+    core_temperature = relationship("CoreTemperatureData", back_populates="raw_data", uselist=False)
+    heart_rate = relationship("HeartRateData", back_populates="raw_data", uselist=False)
+    wbgt = relationship("WBGTData", back_populates="raw_data", uselist=False)
     
     # インデックス
     __table_args__ = (

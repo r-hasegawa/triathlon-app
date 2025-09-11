@@ -8,6 +8,7 @@ import { CSVUpload } from '@/pages/CSVUpload';
 import { CompetitionManagement } from '@/pages/CompetitionManagement';
 import { UploadHistory } from '@/pages/UploadHistory';
 import { UserManagement } from '@/pages/UserManagement';
+import { MultiSensorUpload } from '@/pages/MultiSensorUpload'; // 🆕 追加
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import { ErrorBoundary } from '@/components/ui/ErrorBoundary';
 
@@ -76,33 +77,6 @@ const AppRoutes: React.FC = () => {
           />
           
           <Route
-            path="/data-detail"
-            element={
-              <ProtectedRoute>
-                <DataDetail />
-              </ProtectedRoute>
-            }
-          />
-          
-          <Route
-            path="/admin/csv-upload"
-            element={
-              <AdminRoute>
-                <CSVUpload />
-              </AdminRoute>
-            }
-          />
-          
-          <Route
-            path="/admin/upload-history"
-            element={
-              <AdminRoute>
-                <UploadHistory />
-              </AdminRoute>
-            }
-          />
-          
-          <Route
             path="/admin/users"
             element={
               <AdminRoute>
@@ -114,14 +88,19 @@ const AppRoutes: React.FC = () => {
           <Route 
             path="/admin/competitions" 
             element={
-              <CompetitionManagement />
+              <AdminRoute>
+                <CompetitionManagement />
+              </AdminRoute>
             }
           />
 
+          {/* 🆕 マルチセンサーアップロードページ */}
           <Route
-           path="/admin/multi-sensor" 
-           element={
-              <MultiSensorUpload />
+            path="/admin/multi-sensor" 
+            element={
+              <AdminRoute>
+                <MultiSensorUpload />
+              </AdminRoute>
             } 
           />
           

@@ -1,3 +1,8 @@
-from . import auth, admin, data, competition
+"""
+app/routers/__init__.py (新システムのみ版)
+"""
 
-__all__ = ["auth", "admin", "data", "competition"]
+# 🆕 新しいルーターのみ
+from . import auth, admin, competition, multi_sensor_upload
+
+# ❌ 古いdata.pyは削除済み

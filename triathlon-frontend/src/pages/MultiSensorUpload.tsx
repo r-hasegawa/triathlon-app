@@ -24,6 +24,7 @@ interface SensorConfig {
   icon: string;
   csvFormat: string[];
   example: string;
+  mappingExample: string;
 }
 
 interface UploadStatus {
@@ -32,6 +33,17 @@ interface UploadStatus {
   lastUpload?: any;
   lastMapping?: any;
   unmappedCount: number;
+  error?: string;
+}
+
+interface UnmappedSummary {
+  total_unmapped_records: number;
+  by_sensor_type: Record<string, {
+    total_records: number;
+    unique_sensors: number;
+    sensor_ids: string[];
+  }>;
+  competition_id?: string;
 }
 
 const SENSOR_CONFIGS: SensorConfig[] = [
@@ -41,7 +53,8 @@ const SENSOR_CONFIGS: SensorConfig[] = [
     description: '皮膚表面から測定される温度データ',
     icon: '🌡️',
     csvFormat: ['sensor_id', 'timestamp', 'temperature', 'location (optional)', 'ambient_temp (optional)'],
-    example: 'SENSOR_001,2025-01-01 09:00:00,36.5,forehead,25.0'
+    example: 'SENSOR_001,2025-01-01 09:00:00,36.5,forehead,25.0',
+    mappingExample: 'SENSOR_001,user001,田中太郎'
   },
   {
     type: SensorType.CORE_TEMPERATURE,
@@ -49,7 +62,8 @@ const SENSOR_CONFIGS: SensorConfig[] = [
     description: '体内で測定される核心温度データ',
     icon: '💊',
     csvFormat: ['sensor_id', 'timestamp', 'temperature', 'monitor_id', 'capsule_id', 'battery (optional)', 'signal (optional)'],
-    example: 'CAPSULE_001,2025-01-01 09:00:00,37.2,MON_001,CAP_001,95,85'
+    example: 'CAPSULE_001,2025-01-01 09:00:00,37.2,MON_001,CAP_001,95,85',
+    mappingExample: 'CAPSULE_001,user001,田中太郎'
   },
   {
     type: SensorType.HEART_RATE,
@@ -57,7 +71,8 @@ const SENSOR_CONFIGS: SensorConfig[] = [
     description: 'ウェアラブルデバイスから取得される心拍数データ',
     icon: '❤️',
     csvFormat: ['sensor_id', 'timestamp', 'heart_rate', 'hr_zone (optional)', 'rr_interval (optional)', 'activity (optional)', 'calories (optional)'],
-    example: 'GARMIN_001,2025-01-01 09:00:00,145,3,650,running,250'
+    example: 'GARMIN_001,2025-01-01 09:00:00,145,3,650,running,250',
+    mappingExample: 'GARMIN_001,user001,田中太郎'
   },
   {
     type: SensorType.WBGT,
@@ -65,7 +80,8 @@ const SENSOR_CONFIGS: SensorConfig[] = [
     description: '湿球黒球温度による環境測定データ',
     icon: '🌤️',
     csvFormat: ['sensor_id', 'timestamp', 'wbgt', 'air_temp (optional)', 'humidity (optional)', 'wind_speed (optional)', 'solar (optional)', 'location (optional)'],
-    example: 'WBGT_001,2025-01-01 09:00:00,28.5,32.0,75,2.5,800,start_line'
+    example: 'WBGT_001,2025-01-01 09:00:00,28.5,32.0,75,2.5,800,start_line',
+    mappingExample: 'WBGT_001,,（環境データのためマッピング不要）'
   }
 ];
 
@@ -73,7 +89,8 @@ export const MultiSensorUpload: React.FC = () => {
   const [selectedCompetition, setSelectedCompetition] = useState<string>('');
   const [competitions, setCompetitions] = useState<any[]>([]);
   const [uploadStatuses, setUploadStatuses] = useState<Record<string, UploadStatus>>({});
-  const [unmappedSummary, setUnmappedSummary] = useState<any>(null);
+  const [unmappedSummary, setUnmappedSummary] = useState<UnmappedSummary | null>(null);
+  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     fetchCompetitions();
@@ -91,6 +108,7 @@ export const MultiSensorUpload: React.FC = () => {
 
   const fetchUnmappedSummary = async () => {
     try {
+      setLoading(true);
       const summary = await adminService.getUnmappedDataSummary(selectedCompetition || undefined);
       setUnmappedSummary(summary);
       
@@ -110,6 +128,8 @@ export const MultiSensorUpload: React.FC = () => {
       setUploadStatuses(newStatuses);
     } catch (error) {
       console.error('Error fetching unmapped summary:', error);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -118,7 +138,7 @@ export const MultiSensorUpload: React.FC = () => {
 
     setUploadStatuses(prev => ({
       ...prev,
-      [sensorType]: { ...prev[sensorType], isUploading: true }
+      [sensorType]: { ...prev[sensorType], isUploading: true, error: undefined }
     }));
 
     try {
@@ -139,7 +159,8 @@ export const MultiSensorUpload: React.FC = () => {
       });
 
       if (!response.ok) {
-        throw new Error('Upload failed');
+        const errorData = await response.json();
+        throw new Error(errorData.detail || 'Upload failed');
       }
 
       const result = await response.json();
@@ -159,13 +180,81 @@ export const MultiSensorUpload: React.FC = () => {
       await fetchUnmappedSummary();
 
     } catch (error) {
-      console.error('Mapping error:', error);
-      alert(`マッピングに失敗しました: ${error}`);
+      console.error('Upload error:', error);
+      const errorMessage = error instanceof Error ? error.message : 'アップロードに失敗しました';
       
       setUploadStatuses(prev => ({
         ...prev,
-        [sensorType]: { ...prev[sensorType], isMapping: false }
+        [sensorType]: { 
+          ...prev[sensorType], 
+          isUploading: false,
+          error: errorMessage
+        }
       }));
+      
+      alert(`アップロードに失敗しました: ${errorMessage}`);
+    }
+  };
+
+  const handleMappingUpload = async (sensorType: SensorType, mappingFile: File) => {
+    if (!mappingFile) return;
+
+    setUploadStatuses(prev => ({
+      ...prev,
+      [sensorType]: { ...prev[sensorType], isMapping: true, error: undefined }
+    }));
+
+    try {
+      const endpoint = getMappingEndpoint(sensorType);
+      const formData = new FormData();
+      formData.append('mapping_file', mappingFile);
+      if (selectedCompetition) {
+        formData.append('competition_id', selectedCompetition);
+      }
+
+      const response = await fetch(`/api/multi-sensor/${endpoint}`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('access_token')}`
+        },
+        body: formData
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.detail || 'Mapping failed');
+      }
+
+      const result = await response.json();
+      
+      setUploadStatuses(prev => ({
+        ...prev,
+        [sensorType]: {
+          ...prev[sensorType],
+          isMapping: false,
+          lastMapping: result
+        }
+      }));
+
+      alert(`${getSensorName(sensorType)}のマッピングが完了しました。\nマッピング適用: ${result.mapped_records}件`);
+      
+      // サマリー再取得
+      await fetchUnmappedSummary();
+
+    } catch (error) {
+      console.error('Mapping error:', error);
+      const errorMessage = error instanceof Error ? error.message : 'マッピングに失敗しました';
+      
+      setUploadStatuses(prev => ({
+        ...prev,
+        [sensorType]: { 
+          ...prev[sensorType], 
+          isMapping: false,
+          error: errorMessage
+        }
+      }));
+      
+      alert(`マッピングに失敗しました: ${errorMessage}`);
     }
   };
 
@@ -199,54 +288,59 @@ export const MultiSensorUpload: React.FC = () => {
       {/* ヘッダー */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">マルチセンサーデータアップロード</h1>
-          <p className="text-gray-600 mt-1">センサー種別ごとにデータをアップロードし、後からマッピングを適用できます</p>
+          <h1 className="text-2xl font-bold text-gray-900">マルチセンサーデータ管理</h1>
+          <p className="text-gray-600 mt-1">センサー種別ごとにデータをアップロードし、後からマッピングできます</p>
         </div>
-        <Button onClick={fetchUnmappedSummary} variant="outline" size="sm">
-          🔄 状況更新
-        </Button>
-      </div>
-
-      {/* 大会選択 */}
-      <Card className="p-6">
-        <h2 className="text-lg font-semibold mb-4">大会選択</h2>
-        <select 
-          value={selectedCompetition} 
-          onChange={(e) => setSelectedCompetition(e.target.value)}
-          className="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
-        >
-          <option value="">大会を選択してください</option>
-          {competitions.map(comp => (
-            <option key={comp.competition_id} value={comp.competition_id}>
-              {comp.name} ({comp.date || '日程未定'})
-            </option>
-          ))}
-        </select>
+        
+        {/* 大会選択 */}
+        <div className="w-64">
+          <select
+            value={selectedCompetition}
+            onChange={(e) => setSelectedCompetition(e.target.value)}
+            className="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+          >
+            <option value="">全大会</option>
+            {competitions.map(comp => (
+              <option key={comp.competition_id} value={comp.competition_id}>
+                {comp.competition_name}
+              </option>
+            ))}
+          </select>
+        </div>
       </div>
 
       {/* 未マッピングデータサマリー */}
-      {unmappedSummary && (
-        <Card className="p-6 bg-yellow-50 border-yellow-200">
-          <h2 className="text-lg font-semibold mb-4 text-yellow-800">未マッピングデータ状況</h2>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            {SENSOR_CONFIGS.map(config => {
-              const typeData = unmappedSummary.by_sensor_type?.[config.type];
-              return (
-                <div key={config.type} className="text-center p-3 bg-white rounded-lg border">
-                  <div className="text-2xl mb-1">{config.icon}</div>
-                  <div className="text-xl font-bold text-orange-600">
-                    {typeData?.total_records || 0}
+      {unmappedSummary && unmappedSummary.total_unmapped_records > 0 && (
+        <Card className="bg-yellow-50 border-yellow-200">
+          <div className="p-4">
+            <div className="flex items-center mb-3">
+              <span className="text-xl mr-2">⚠️</span>
+              <h3 className="text-lg font-semibold text-yellow-800">
+                未マッピングデータ: {unmappedSummary.total_unmapped_records}件
+              </h3>
+            </div>
+            
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
+              {SENSOR_CONFIGS.map(config => {
+                const typeData = unmappedSummary.by_sensor_type?.[config.type];
+                return (
+                  <div key={config.type} className="text-center p-3 bg-white rounded-lg border">
+                    <div className="text-2xl mb-1">{config.icon}</div>
+                    <div className="text-xl font-bold text-orange-600">
+                      {typeData?.total_records || 0}
+                    </div>
+                    <div className="text-xs text-gray-600">未マッピング</div>
+                    <div className="text-xs text-gray-500 mt-1">
+                      {typeData?.unique_sensors || 0} センサー
+                    </div>
                   </div>
-                  <div className="text-xs text-gray-600">未マッピング</div>
-                  <div className="text-xs text-gray-500 mt-1">
-                    {typeData?.unique_sensors || 0} センサー
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-          <div className="mt-4 text-sm text-yellow-700">
-            ⚠️ 未マッピングデータは被験者に表示されません。マッピングファイルをアップロードしてください。
+                );
+              })}
+            </div>
+            
+            <div className="text-sm text-yellow-700">
+              ⚠️ 未マッピングデータは被験者に表示されません。マッピングファイルをアップロードしてください。
+            </div>
           </div>
         </Card>
       )}
@@ -319,6 +413,15 @@ const SensorUploadCard: React.FC<SensorUploadCardProps> = ({
       </div>
 
       <div className="p-6 space-y-4">
+        {/* エラー表示 */}
+        {status.error && (
+          <div className="bg-red-50 border border-red-200 rounded-md p-3">
+            <div className="text-red-700 text-sm">
+              ❌ {status.error}
+            </div>
+          </div>
+        )}
+
         {/* データファイルアップロード */}
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -396,9 +499,13 @@ const SensorUploadCard: React.FC<SensorUploadCardProps> = ({
               <div className="font-mono text-xs bg-white p-2 rounded border">
                 {config.csvFormat.join(', ')}
               </div>
-              <div className="font-medium text-gray-700 mt-3 mb-2">例:</div>
+              <div className="font-medium text-gray-700 mt-3 mb-2">データ例:</div>
               <div className="font-mono text-xs bg-white p-2 rounded border text-green-600">
                 {config.example}
+              </div>
+              <div className="font-medium text-gray-700 mt-3 mb-2">マッピング例:</div>
+              <div className="font-mono text-xs bg-white p-2 rounded border text-blue-600">
+                {config.mappingExample}
               </div>
               <div className="mt-2 text-xs text-gray-600">
                 • (optional) の列は省略可能です<br/>
@@ -413,59 +520,4 @@ const SensorUploadCard: React.FC<SensorUploadCardProps> = ({
   );
 };
 
-export default MultiSensorUpload;edSummary();
-
-    } catch (error) {
-      console.error('Upload error:', error);
-      alert(`アップロードに失敗しました: ${error}`);
-      
-      setUploadStatuses(prev => ({
-        ...prev,
-        [sensorType]: { ...prev[sensorType], isUploading: false }
-      }));
-    }
-  };
-
-  const handleMappingUpload = async (sensorType: SensorType, mappingFile: File) => {
-    if (!mappingFile) return;
-
-    setUploadStatuses(prev => ({
-      ...prev,
-      [sensorType]: { ...prev[sensorType], isMapping: true }
-    }));
-
-    try {
-      const endpoint = getMappingEndpoint(sensorType);
-      const formData = new FormData();
-      formData.append('mapping_file', mappingFile);
-      if (selectedCompetition) {
-        formData.append('competition_id', selectedCompetition);
-      }
-
-      const response = await fetch(`/api/multi-sensor/${endpoint}`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('access_token')}`
-        },
-        body: formData
-      });
-
-      if (!response.ok) {
-        throw new Error('Mapping failed');
-      }
-
-      const result = await response.json();
-      
-      setUploadStatuses(prev => ({
-        ...prev,
-        [sensorType]: {
-          ...prev[sensorType],
-          isMapping: false,
-          lastMapping: result
-        }
-      }));
-
-      alert(`${getSensorName(sensorType)}のマッピングが完了しました。\nマッピング適用: ${result.mapped_records}件`);
-      
-      // サマリー再取得
-      await fetchUnmapp
+export default MultiSensorUpload;

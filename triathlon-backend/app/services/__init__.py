@@ -1,3 +1,10 @@
-from .csv_service import CSVProcessingService
+"""
+app/services/__init__.py (新システム版)
+"""
 
-__all__ = ["CSVProcessingService"]
+# 🆕 新しいマルチセンサーサービス
+from .flexible_csv_service import FlexibleCSVService
+
+__all__ = [
+    "FlexibleCSVService"
+]

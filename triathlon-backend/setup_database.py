@@ -1,22 +1,19 @@
-#!/usr/bin/env python3
 """
-データベース初期化とサンプルデータ作成スクリプト（大会管理対応版）
+setup_database.py (新システム版)
 """
 
 import sys
 from pathlib import Path
-import pandas as pd
-from datetime import datetime, timedelta, date
-import random
-import uuid
 
-# プロジェクトルートをパスに追加
 sys.path.append(str(Path(__file__).parent))
 
 from app.database import engine, Base, SessionLocal
-from app.models import (
-    User, AdminUser, SensorData, SensorMapping, UploadHistory,
-    Competition, RaceRecord, WBGTData, CapsuleTemperatureData, HeartRateData
+from app.models.user import User, AdminUser
+from app.models.competition import Competition, RaceRecord  
+from app.models.flexible_sensor_data import (
+    RawSensorData, FlexibleSensorMapping,
+    SkinTemperatureData, CoreTemperatureData, 
+    HeartRateData, WBGTData
 )
 from app.utils.security import get_password_hash
 
@@ -25,6 +22,8 @@ def create_tables():
     print("🗄️  Creating database tables...")
     Base.metadata.create_all(bind=engine)
     print("✅ Tables created successfully!")
+
+# 他の関数も新システムに対応...
 
 def create_initial_users():
     """初期ユーザー・管理者作成"""

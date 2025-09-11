@@ -1,41 +1,46 @@
 """
-app/models/__init__.py
-
-全モデルのインポート統合
+app/models/__init__.py (新システムのみ版)
 """
 
-# 既存モデル
+# Core models
 from .user import User, AdminUser
-from .sensor_data import (
-    SensorData, 
-    SensorMapping, 
-    UploadHistory,
-    CapsuleTemperatureData,
-    HeartRateData
+from .competition import Competition, RaceRecord
+
+# 🆕 新しいマルチセンサーシステムのみ
+from .flexible_sensor_data import (
+    # Enums
+    SensorType,
+    SensorDataStatus,
+    
+    # Core tables
+    RawSensorData,
+    FlexibleSensorMapping,
+    
+    # Specialized tables
+    SkinTemperatureData,
+    CoreTemperatureData, 
+    HeartRateData,
+    WBGTData,
+    
+    # View
+    SensorDataView
 )
 
-# 🆕 新規モデル
-from .competition import (
-    Competition,
-    RaceRecord, 
-    WBGTData
-)
-
-# エクスポート用
 __all__ = [
-    # ユーザー関連
+    # Core
     "User",
-    "AdminUser",
-    
-    # センサデータ関連
-    "SensorData",
-    "SensorMapping", 
-    "UploadHistory",
-    "CapsuleTemperatureData",
-    "HeartRateData",
-    
-    # 🆕 大会関連
+    "AdminUser", 
     "Competition",
     "RaceRecord",
+    
+    # New multi-sensor system
+    "SensorType",
+    "SensorDataStatus", 
+    "RawSensorData",
+    "FlexibleSensorMapping",
+    "SkinTemperatureData",
+    "CoreTemperatureData",
+    "HeartRateData", 
     "WBGTData",
+    "SensorDataView"
 ]

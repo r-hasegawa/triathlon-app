@@ -1,32 +1,62 @@
+/**
+ * AdminDashboard.tsx - 新システム対応版
+ * マルチセンサーシステムに対応した管理者ダッシュボード
+ */
+
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useAuth } from '@/contexts/AuthContext';
 import { Layout } from '@/components/layout/Layout';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
-import { adminService, DashboardStats } from '@/services/adminService';
+import { adminService } from '@/services/adminService';
+
+interface DashboardStats {
+  total_users: number;
+  active_users: number;
+  total_competitions: number;
+  active_competitions: number;
+  total_sensor_records: number;
+  mapped_sensor_records: number;
+  unmapped_sensor_records: number;
+}
+
+interface UnmappedSummary {
+  total_unmapped_records: number;
+  by_sensor_type: Record<string, {
+    total_records: number;
+    unique_sensors: number;
+    sensor_ids: string[];
+  }>;
+}
 
 export const AdminDashboard: React.FC = () => {
-  const { user } = useAuth();
-  const navigate = useNavigate();
   const [stats, setStats] = useState<DashboardStats | null>(null);
+  const [unmappedSummary, setUnmappedSummary] = useState<UnmappedSummary | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
+  const navigate = useNavigate();
 
   useEffect(() => {
-    fetchDashboardStats();
+    fetchDashboardData();
   }, []);
 
-  const fetchDashboardStats = async () => {
+  const fetchDashboardData = async () => {
     try {
       setIsLoading(true);
       setError('');
-      const dashboardStats = await adminService.getDashboardStats();
-      setStats(dashboardStats);
-    } catch (err: any) {
-      console.error('Error fetching dashboard stats:', err);
-      setError('統計情報の取得に失敗しました');
+      
+      // 並列でデータを取得
+      const [statsData, unmappedData] = await Promise.all([
+        adminService.getSystemStats(),
+        adminService.getUnmappedDataSummary()
+      ]);
+      
+      setStats(statsData);
+      setUnmappedSummary(unmappedData);
+    } catch (error) {
+      console.error('Error fetching dashboard data:', error);
+      setError('ダッシュボードデータの取得に失敗しました');
     } finally {
       setIsLoading(false);
     }
@@ -35,8 +65,9 @@ export const AdminDashboard: React.FC = () => {
   if (isLoading) {
     return (
       <Layout>
-        <div className="flex justify-center items-center h-64">
+        <div className="flex justify-center items-center py-12">
           <LoadingSpinner size="lg" />
+          <span className="ml-3 text-gray-600">ダッシュボードを読み込み中...</span>
         </div>
       </Layout>
     );
@@ -46,16 +77,13 @@ export const AdminDashboard: React.FC = () => {
     <Layout>
       <div className="space-y-8">
         {/* ヘッダー */}
-        <div className="flex justify-between items-center">
+        <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">管理者ダッシュボード</h1>
-            <p className="mt-1 text-sm text-gray-500">
-              システム管理とデータ管理を行えます
-            </p>
+            <h1 className="text-3xl font-bold text-gray-900">管理者ダッシュボード</h1>
+            <p className="text-gray-600 mt-1">システム全体の状況とマルチセンサーデータ管理</p>
           </div>
-          
-          <Button onClick={fetchDashboardStats} variant="outline" size="sm">
-            🔄 統計を更新
+          <Button onClick={fetchDashboardData} variant="outline">
+            🔄 更新
           </Button>
         </div>
 
@@ -64,338 +92,225 @@ export const AdminDashboard: React.FC = () => {
           <div className="bg-red-50 border border-red-200 rounded-md p-4">
             <div className="flex justify-between items-center">
               <p className="text-sm text-red-600">{error}</p>
-              <Button
-                onClick={fetchDashboardStats}
-                variant="outline"
-                size="sm"
-              >
+              <Button onClick={fetchDashboardData} variant="outline" size="sm">
                 再試行
               </Button>
             </div>
           </div>
         )}
 
-        {/* システム統計 */}
+        {/* システム統計カード */}
         {stats && (
-          <div>
-            <h2 className="text-lg font-medium text-gray-900 mb-4">システム統計</h2>
-            <div className="admin-grid grid-4 mb-8">
-              
-              {/* ユーザー統計 */}
-              <div className="card">
-                <div className="card-body text-center">
-                  <div className="stats-number text-blue-600">{stats.total_users}</div>
-                  <p className="stats-label-main">総ユーザー数</p>
-                  
-                  <div className="stats-detail">
-                    <div className="stats-row">
-                      <span className="stats-label text-green-600">アクティブ</span>
-                      <span className="stats-value">{stats.active_users}</span>
-                    </div>
-                    <div className="stats-row">
-                      <span className="stats-label text-gray-600">無効</span>
-                      <span className="stats-value">{stats.inactive_users}</span>
-                    </div>
-                  </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+            {/* ユーザー統計 */}
+            <Card className="p-6">
+              <div className="flex items-center">
+                <div className="p-3 rounded-full bg-blue-100">
+                  <svg className="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197m13.5-9a2.5 2.5 0 11-5 0 2.5 2.5 0 015 0z" />
+                  </svg>
+                </div>
+                <div className="ml-4">
+                  <p className="text-sm font-medium text-gray-500">総ユーザー数</p>
+                  <p className="text-2xl font-bold text-gray-900">{stats.total_users}</p>
+                  <p className="text-xs text-gray-500">
+                    アクティブ: {stats.active_users} / 非アクティブ: {stats.total_users - stats.active_users}
+                  </p>
                 </div>
               </div>
+            </Card>
 
-              {/* データ統計 */}
-              <div className="card">
-                <div className="card-body text-center">
-                  <div className="stats-number text-green-600">
-                    {stats.total_data_records.toLocaleString()}
-                  </div>
-                  <p className="stats-label-main">総データ数</p>
-                  
-                  <div className="stats-detail">
-                    <div className="stats-row">
-                      <span className="stats-label text-green-600">直近7日</span>
-                      <span className="stats-value">{stats.recent_data_count.toLocaleString()}</span>
-                    </div>
-                    <div className="stats-row">
-                      <span className="stats-label text-gray-600">1ユーザー平均</span>
-                      <span className="stats-value">{stats.avg_records_per_user}</span>
-                    </div>
-                  </div>
+            {/* 大会統計 */}
+            <Card className="p-6">
+              <div className="flex items-center">
+                <div className="p-3 rounded-full bg-green-100">
+                  <svg className="w-6 h-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+                  </svg>
+                </div>
+                <div className="ml-4">
+                  <p className="text-sm font-medium text-gray-500">総大会数</p>
+                  <p className="text-2xl font-bold text-gray-900">{stats.total_competitions}</p>
+                  <p className="text-xs text-gray-500">
+                    アクティブ: {stats.active_competitions}
+                  </p>
                 </div>
               </div>
+            </Card>
 
-              {/* センサー統計 */}
-              <div className="card">
-                <div className="card-body text-center">
-                  <div className="stats-number text-purple-600">{stats.total_sensors}</div>
-                  <p className="stats-label-main">登録センサー数</p>
-                  
-                  <div className="stats-detail">
-                    <div className="stats-row">
-                      <span className="stats-label text-purple-600">アクティブ</span>
-                      <span className="stats-value">{stats.active_sensors || stats.total_sensors}</span>
-                    </div>
-                    <div className="stats-row">
-                      <span className="stats-label text-gray-600">1ユーザー平均</span>
-                      <span className="stats-value">{stats.avg_sensors_per_user}</span>
-                    </div>
-                  </div>
+            {/* センサーデータ統計 */}
+            <Card className="p-6">
+              <div className="flex items-center">
+                <div className="p-3 rounded-full bg-purple-100">
+                  <svg className="w-6 h-6 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                  </svg>
+                </div>
+                <div className="ml-4">
+                  <p className="text-sm font-medium text-gray-500">総データ数</p>
+                  <p className="text-2xl font-bold text-gray-900">
+                    {stats.total_sensor_records.toLocaleString()}
+                  </p>
+                  <p className="text-xs text-gray-500">
+                    マッピング済み: {stats.mapped_sensor_records.toLocaleString()}
+                  </p>
                 </div>
               </div>
+            </Card>
 
-              {/* 直近活動 */}
-              <div className="card">
-                <div className="card-body text-center">
-                  <div className="stats-number text-orange-600">
-                    {stats.recent_data_count > 999 ? '999+' : stats.recent_data_count}
-                  </div>
-                  <p className="stats-label-main">直近データ数</p>
-                  
-                  <div className="stats-detail">
-                    <div className="stats-row">
-                      <span className="stats-label text-orange-600">アップロード</span>
-                      <span className="stats-value">{stats.recent_uploads}</span>
-                    </div>
-                    <div className="stats-row">
-                      <span className="stats-label text-gray-600">過去7日間</span>
-                      <span className="stats-value">新規データ</span>
-                    </div>
-                  </div>
+            {/* 未マッピングデータ統計 */}
+            <Card className="p-6">
+              <div className="flex items-center">
+                <div className="p-3 rounded-full bg-orange-100">
+                  <svg className="w-6 h-6 text-orange-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.732-.833-2.5 0L4.732 18.5c-.77.833.192 2.5 1.732 2.5z" />
+                  </svg>
+                </div>
+                <div className="ml-4">
+                  <p className="text-sm font-medium text-gray-500">未マッピング</p>
+                  <p className="text-2xl font-bold text-gray-900">
+                    {stats.unmapped_sensor_records.toLocaleString()}
+                  </p>
+                  <p className="text-xs text-gray-500">
+                    要対応データ
+                  </p>
                 </div>
               </div>
-            </div>
+            </Card>
           </div>
         )}
 
-        {/* 主要機能へのアクセス */}
-        <div className="card">
-          <div className="card-header-improved">
-            <h3 className="card-title-improved">主要機能</h3>
-            <p className="card-subtitle-improved">管理機能へのクイックアクセス</p>
-          </div>
-          
-          <div className="card-body">
-            {/* 🆕 大会管理カード - 最初に配置 */}
-            <button
-              onClick={() => navigate('/admin/competitions')}
-              className="admin-action-button"
-            >
-              <span className="admin-action-icon">🏆</span>
-              <div className="admin-action-content">
-                <div className="admin-action-title">大会管理</div>
-                <p className="admin-action-description">トライアスロン大会の作成・管理・データ紐付け</p>
+        {/* 未マッピングデータ詳細 */}
+        {unmappedSummary && unmappedSummary.total_unmapped_records > 0 && (
+          <Card className="p-6">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h2 className="text-xl font-semibold text-gray-900">未マッピングデータ詳細</h2>
+                <p className="text-gray-600">センサー種別ごとの未処理データ状況</p>
               </div>
-            </button>
-            
-            {/* 既存のCSVアップロードカード */}
-            <button
-              onClick={() => navigate('/admin/csv-upload')}
-              className="admin-action-button"
-            >
-              <span className="admin-action-icon">📁</span>
-              <div className="admin-action-content">
-                <div className="admin-action-title">CSVファイルをアップロード</div>
-                <p className="admin-action-description">センサデータとマッピングファイルの管理</p>
-              </div>
-            </button>
-            
-            {/* 既存のユーザー管理カード */}
-            <button
-              onClick={() => navigate('/admin/users')}
-              className="admin-action-button"
-            >
-              <span className="admin-action-icon">👥</span>
-              <div className="admin-action-content">
-                <div className="admin-action-title">ユーザーを管理</div>
-                <p className="admin-action-description">アカウント作成・編集・削除</p>
-              </div>
-            </button>
-            
-            {/* 既存のアップロード履歴カード */}
-            <button
-              onClick={() => navigate('/admin/upload-history')}
-              className="admin-action-button"
-            >
-              <span className="admin-action-icon">📊</span>
-              <div className="admin-action-content">
-                <div className="admin-action-title">処理状況を確認</div>
-                <p className="admin-action-description">アップロード結果とエラー</p>
-              </div>
-            </button>
-          </div>
-        </div>
-
-        {/* データ品質インジケーター */}
-        {stats && (
-          <div className="card">
-            <div className="card-header-improved">
-              <h3 className="card-title-improved">データ品質</h3>
-              <p className="card-subtitle-improved">システム全体のデータ状況</p>
+              <Button
+                onClick={() => navigate('/admin/multi-sensor')}
+                className="bg-orange-600 hover:bg-orange-700"
+              >
+                マッピング処理に移動
+              </Button>
             </div>
-            
-            <div className="card-body">
-              <div className="admin-grid grid-3">
+
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              {Object.entries(unmappedSummary.by_sensor_type).map(([sensorType, data]) => {
+                const icons: Record<string, string> = {
+                  skin_temperature: '🌡️',
+                  core_temperature: '💊',
+                  heart_rate: '❤️',
+                  wbgt: '🌤️'
+                };
                 
-                {/* データカバレッジ */}
-                <div className="text-center">
-                  <div className="quality-indicator">
-                    <svg className="quality-circle-bg" viewBox="0 0 36 36">
-                      <path
-                        d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
-                        fill="none"
-                        stroke="#e5e7eb"
-                        strokeWidth="3"
-                      />
-                    </svg>
-                    <svg className="quality-circle-progress" viewBox="0 0 36 36">
-                      <path
-                        d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
-                        fill="none"
-                        stroke="#3b82f6"
-                        strokeWidth="3"
-                        strokeDasharray={`${stats.total_users > 0 ? (stats.users_with_data / stats.total_users) * 100 : 0}, 100`}
-                      />
-                    </svg>
-                    <div className="quality-percentage">
-                      {stats.total_users > 0 ? Math.round((stats.users_with_data / stats.total_users) * 100) : 0}%
+                const names: Record<string, string> = {
+                  skin_temperature: '体表温',
+                  core_temperature: 'カプセル体温',
+                  heart_rate: '心拍',
+                  wbgt: 'WBGT'
+                };
+
+                return (
+                  <div key={sensorType} className="text-center p-4 bg-orange-50 rounded-lg border border-orange-200">
+                    <div className="text-2xl mb-2">{icons[sensorType] || '📊'}</div>
+                    <div className="text-xl font-bold text-orange-700">
+                      {data.total_records}
+                    </div>
+                    <div className="text-sm text-gray-600">{names[sensorType] || sensorType}</div>
+                    <div className="text-xs text-gray-500 mt-1">
+                      {data.unique_sensors} センサー
                     </div>
                   </div>
-                  <p className="text-sm font-medium text-gray-900 mt-3">データカバレッジ</p>
-                  <p className="text-xs text-gray-500">データを持つユーザーの割合</p>
-                </div>
-
-                {/* システム稼働率 */}
-                <div className="text-center">
-                  <div className="quality-indicator">
-                    <svg className="quality-circle-bg" viewBox="0 0 36 36">
-                      <path
-                        d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
-                        fill="none"
-                        stroke="#e5e7eb"
-                        strokeWidth="3"
-                      />
-                    </svg>
-                    <svg className="quality-circle-progress" viewBox="0 0 36 36">
-                      <path
-                        d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
-                        fill="none"
-                        stroke="#22c55e"
-                        strokeWidth="3"
-                        strokeDasharray="98, 100"
-                      />
-                    </svg>
-                    <div className="quality-percentage" style={{color: '#22c55e'}}>98%</div>
-                  </div>
-                  <p className="text-sm font-medium text-gray-900 mt-3">システム稼働率</p>
-                  <p className="text-xs text-gray-500">過去30日間の稼働状況</p>
-                </div>
-
-                {/* データ完整性 */}
-                <div className="text-center">
-                  <div className="quality-indicator">
-                    <svg className="quality-circle-bg" viewBox="0 0 36 36">
-                      <path
-                        d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
-                        fill="none"
-                        stroke="#e5e7eb"
-                        strokeWidth="3"
-                      />
-                    </svg>
-                    <svg className="quality-circle-progress" viewBox="0 0 36 36">
-                      <path
-                        d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
-                        fill="none"
-                        stroke="#a855f7"
-                        strokeWidth="3"
-                        strokeDasharray="95, 100"
-                      />
-                    </svg>
-                    <div className="quality-percentage" style={{color: '#a855f7'}}>95%</div>
-                  </div>
-                  <p className="text-sm font-medium text-gray-900 mt-3">データ完整性</p>
-                  <p className="text-xs text-gray-500">欠損データの少なさ</p>
-                </div>
-              </div>
+                );
+              })}
             </div>
-          </div>
+
+            <div className="mt-4 p-3 bg-yellow-50 border border-yellow-200 rounded-md">
+              <p className="text-sm text-yellow-800">
+                ⚠️ 未マッピングデータは被験者に表示されません。マルチセンサーアップロードページでマッピングを実行してください。
+              </p>
+            </div>
+          </Card>
         )}
+
+        {/* クイックアクション */}
+        <Card className="p-6">
+          <h2 className="text-xl font-semibold text-gray-900 mb-4">クイックアクション</h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            <Button
+              onClick={() => navigate('/admin/multi-sensor')}
+              className="h-20 flex flex-col items-center justify-center"
+              variant="outline"
+            >
+              <svg className="w-6 h-6 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+              </svg>
+              <span className="text-sm">マルチセンサーアップロード</span>
+            </Button>
+
+            <Button
+              onClick={() => navigate('/admin/users')}
+              className="h-20 flex flex-col items-center justify-center"
+              variant="outline"
+            >
+              <svg className="w-6 h-6 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197m13.5-9a2.5 2.5 0 11-5 0 2.5 2.5 0 015 0z" />
+              </svg>
+              <span className="text-sm">ユーザー管理</span>
+            </Button>
+
+            <Button
+              onClick={() => navigate('/admin/competitions')}
+              className="h-20 flex flex-col items-center justify-center"
+              variant="outline"
+            >
+              <svg className="w-6 h-6 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+              </svg>
+              <span className="text-sm">大会管理</span>
+            </Button>
+
+            <Button
+              onClick={fetchDashboardData}
+              className="h-20 flex flex-col items-center justify-center"
+              variant="outline"
+            >
+              <svg className="w-6 h-6 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
+              <span className="text-sm">データ更新</span>
+            </Button>
+          </div>
+        </Card>
 
         {/* システム情報 */}
-        <div className="card system-info-card">
-          <div className="card-header-improved">
-            <h3 className="card-title-improved">システム情報</h3>
-          </div>
-          
-          <div className="card-body">
-            <div className="admin-grid grid-2">
-              <div className="system-info-section">
-                <h4>
-                  <span>🔧</span>
-                  管理機能
-                </h4>
-                <ul className="system-info-list">
-                  <li>CSVファイルの一括アップロード</li>
-                  <li>ユーザーアカウント管理</li>
-                  <li>センサーマッピング管理</li>
-                  <li>データ処理履歴確認</li>
-                </ul>
-              </div>
-              
-              <div className="system-info-section">
-                <h4>
-                  <span>📊</span>
-                  データ形式
-                </h4>
-                <ul className="system-info-list">
-                  <li>センサデータ: CSV (sensor_id, timestamp, temperature)</li>
-                  <li>マッピング: CSV (sensor_id, user_id, subject_name)</li>
-                  <li>最大ファイルサイズ: 10MB</li>
-                  <li>文字コード: UTF-8</li>
-                </ul>
-              </div>
+        <Card className="p-6">
+          <h2 className="text-lg font-semibold text-gray-900 mb-4">システム情報</h2>
+          <div className="grid grid-cols-2 gap-4 text-sm">
+            <div className="flex justify-between">
+              <span className="text-gray-600">バージョン</span>
+              <span className="font-medium">v2.0.0</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-gray-600">稼働状況</span>
+              <span className="text-green-600 font-medium">正常</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-gray-600">マッピング率</span>
+              <span className="font-medium">
+                {stats ? Math.round((stats.mapped_sensor_records / Math.max(stats.total_sensor_records, 1)) * 100) : 0}%
+              </span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-gray-600">ユーザー稼働率</span>
+              <span className="font-medium">
+                {stats ? Math.round((stats.active_users / Math.max(stats.total_users, 1)) * 100) : 0}%
+              </span>
             </div>
           </div>
-        </div>
-
-        {/* 最近の活動 */}
-        {stats && (
-          <div className="card">
-            <div className="card-header-improved">
-              <h3 className="card-title-improved">最近の活動</h3>
-              <p className="card-subtitle-improved">過去7日間のシステム使用状況</p>
-            </div>
-            
-            <div className="card-body">
-              <div className="admin-grid grid-2">
-                <div className="text-center p-4 bg-blue-50 rounded-lg">
-                  <div className="text-2xl font-bold text-blue-600 mb-2">
-                    {stats.recent_data_count.toLocaleString()}
-                  </div>
-                  <p className="text-sm font-medium text-blue-800">新規データレコード</p>
-                  <p className="text-xs text-blue-600 mt-1">過去7日間で追加</p>
-                </div>
-                
-                <div className="text-center p-4 bg-green-50 rounded-lg">
-                  <div className="text-2xl font-bold text-green-600 mb-2">
-                    {stats.recent_uploads}
-                  </div>
-                  <p className="text-sm font-medium text-green-800">ファイルアップロード</p>
-                  <p className="text-xs text-green-600 mt-1">過去7日間の処理数</p>
-                </div>
-              </div>
-              
-              <div className="mt-6 pt-6 border-t border-gray-200">
-                <div className="flex justify-between items-center">
-                  <div>
-                    <p className="text-sm font-medium text-gray-900">システムステータス</p>
-                    <p className="text-xs text-gray-500">すべてのサービスが正常に動作しています</p>
-                  </div>
-                  <div className="flex items-center">
-                    <div className="w-3 h-3 bg-green-400 rounded-full mr-2"></div>
-                    <span className="text-sm font-medium text-green-600">正常</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
+        </Card>
       </div>
     </Layout>
   );
