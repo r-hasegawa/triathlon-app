@@ -1,8 +1,6 @@
 """
-app/routers/__init__.py (新システムのみ版)
+app/routers/__init__.py (修正版)
 """
 
-# 🆕 新しいルーターのみ
-from . import auth, admin, competition, multi_sensor_upload
-
-# ❌ 古いdata.pyは削除済み
+# 存在するルーターのみインポート
+from . import auth, competition, user_data

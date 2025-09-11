@@ -1,13 +1,14 @@
 """
-app/main.py (最終修正版)
+app/main.py (修正版)
 """
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.database import engine, Base
 
-# 🔧 存在するルーターのみインポート
-from app.routers import auth, admin, competition, multi_sensor_upload, user_data
+# ルーターインポート
+from app.routers import auth, user_data, competition
+from app.routers.admin import router as admin_router
 
 Base.metadata.create_all(bind=engine)
 
@@ -32,10 +33,9 @@ app.add_middleware(
 # public/ → 公共の環境データ
 
 app.include_router(auth.router, prefix="/auth", tags=["authentication"])
-app.include_router(admin.router, tags=["admin"])  # admin.pyで既にprefix="/admin"設定済み
+app.include_router(admin_router, tags=["admin"])  # /admin/* endpoints
 app.include_router(user_data.router, tags=["user-data"])  # /me/* endpoints
 app.include_router(competition.router, tags=["competitions"])  # /public/* endpoints
-app.include_router(multi_sensor_upload.router, prefix="/admin", tags=["multi-sensor"])
 
 @app.get("/")
 async def root():
