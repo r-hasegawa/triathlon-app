@@ -8,7 +8,7 @@ from pathlib import Path
 import uvicorn
 
 # ルーター import 🆕 competition 追加
-from app.routers import auth, admin, data, competition
+from app.routers import auth, admin, data, competition, multi_sensor_upload
 
 # アップロードディレクトリ作成
 UPLOAD_DIR = Path(os.getenv("UPLOAD_DIR", "./uploads/csv"))
@@ -41,7 +41,8 @@ if Path("static").exists():
 app.include_router(auth.router, prefix="/auth", tags=["Authentication"])
 app.include_router(admin.router, prefix="/admin", tags=["Admin"])
 app.include_router(data.router, prefix="/data", tags=["Data"])
-app.include_router(competition.router, prefix="/api", tags=["Competition"])  # 🆕 追加
+app.include_router(competition.router, prefix="/api", tags=["Competition"])
+app.include_router(multi_sensor_upload.router, prefix="/api", tags=["MultiSensor"])
 
 # ルートエンドポイント
 @app.get("/")

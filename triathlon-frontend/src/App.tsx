@@ -117,6 +117,13 @@ const AppRoutes: React.FC = () => {
               <CompetitionManagement />
             }
           />
+
+          <Route
+           path="/admin/multi-sensor" 
+           element={
+              <MultiSensorUpload />
+            } 
+          />
           
           <Route path="/" element={<Navigate to="/dashboard" replace />} />
           <Route path="*" element={<Navigate to="/login" replace />} />
