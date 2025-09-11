@@ -20,11 +20,17 @@ class FlexibleCSVService:
         self,
         sensor_file: UploadFile,
         sensor_type: SensorType,
-        competition_id: Optional[str],
+        competition_id: str,  # ✅ Optional[str] → str (必須)
         db: Session
     ) -> UploadResponse:
         """センサーデータのみ処理"""
         try:
+            # ✅ 大会存在チェック追加
+            from app.models import Competition
+            competition = db.query(Competition).filter_by(competition_id=competition_id).first()
+            if not competition:
+                raise HTTPException(status_code=400, detail=f"大会ID '{competition_id}' が見つかりません")
+            
             content = await sensor_file.read()
             df = pd.read_csv(io.BytesIO(content))
             
@@ -36,7 +42,7 @@ class FlexibleCSVService:
                     sensor_id=str(row.get('sensor_id', '')),
                     timestamp=pd.to_datetime(row.get('timestamp')),
                     data_values=str(row.get('value', 0)),
-                    competition_id=competition_id,
+                    competition_id=competition_id,  # ✅ 必須で設定
                     mapping_status=SensorDataStatus.UNMAPPED,
                     raw_data=row.to_json()
                 )
@@ -47,7 +53,7 @@ class FlexibleCSVService:
             
             return UploadResponse(
                 success=True,
-                message=f"{sensor_type.value}データを{processed}件処理しました",
+                message=f"{sensor_type.value}データを{processed}件処理しました（大会: {competition.name}）",
                 total_records=len(df),
                 processed_records=processed
             )
@@ -102,50 +108,123 @@ class FlexibleCSVService:
             db.rollback()
             raise HTTPException(status_code=400, detail=f"WBGT処理エラー: {str(e)}")
 
+
     async def process_mapping_data(
         self,
         mapping_file: UploadFile,
-        competition_id: Optional[str],
+        competition_id: str,  # 必須
         db: Session,
         overwrite: bool = True
     ) -> MappingResponse:
-        """マッピングデータ処理"""
+        """柔軟なマッピングデータ処理"""
         try:
+            # 大会存在チェック
+            from app.models import Competition
+            competition = db.query(Competition).filter_by(competition_id=competition_id).first()
+            if not competition:
+                raise HTTPException(status_code=400, detail=f"大会ID '{competition_id}' が見つかりません")
+            
             if overwrite and competition_id:
                 db.query(FlexibleSensorMapping).filter_by(competition_id=competition_id).delete()
             
             content = await mapping_file.read()
             df = pd.read_csv(io.BytesIO(content))
             
-            processed = 0
+            # 必須列チェック
+            if 'user_id' not in df.columns:
+                raise HTTPException(status_code=400, detail="user_id列が必要です")
+            
+            # user_id重複チェック
+            duplicate_users = df[df['user_id'].duplicated()]['user_id'].tolist()
+            if duplicate_users:
+                raise HTTPException(
+                    status_code=400, 
+                    detail=f"user_idに重複があります: {duplicate_users}"
+                )
+            
+            # 認識するセンサー列のみ（固定列名）- 個人データのみ
+            recognized_sensor_columns = {
+                'skin_temp_sensor_id': SensorType.SKIN_TEMPERATURE,
+                'core_temp_sensor_id': SensorType.CORE_TEMPERATURE,
+                'heart_rate_sensor_id': SensorType.HEART_RATE
+                # WBGTは環境データなのでマッピング不要
+            }
+            
+            # 認識する列リスト（user_id + センサー列のみ）
+            recognized_columns = {'user_id'} | set(recognized_sensor_columns.keys())
+            
+            # 破棄される列をログ出力
+            ignored_columns = set(df.columns) - recognized_columns
+            if ignored_columns:
+                print(f"🗑️  無視される列: {list(ignored_columns)}")
+            
+            processed_mappings = 0
+            processed_users = 0
+            updated_sensor_data = 0
             
             for _, row in df.iterrows():
                 user_id = str(row.get('user_id', '')).strip()
                 if not user_id:
                     continue
                 
-                # 各センサーID列を処理
-                for col in df.columns:
-                    if col != 'user_id' and pd.notna(row.get(col)):
-                        sensor_id = str(row[col]).strip()
+                processed_users += 1
+                
+                # 認識されるセンサー列のみ処理
+                for col_name, sensor_type in recognized_sensor_columns.items():
+                    if col_name in df.columns and pd.notna(row.get(col_name)):
+                        sensor_id = str(row[col_name]).strip()
                         if sensor_id:
+                            # ユーザー存在チェック
+                            from app.models import User
+                            user = db.query(User).filter_by(user_id=user_id).first()
+                            if not user:
+                                print(f"⚠️  User {user_id} not found, skipping mapping")
+                                continue
+                            
+                            # 同一大会内での重複センサーチェック
+                            existing_mapping = db.query(FlexibleSensorMapping).filter_by(
+                                sensor_id=sensor_id,
+                                sensor_type=sensor_type,
+                                competition_id=competition_id
+                            ).first()
+                            
+                            if existing_mapping:
+                                print(f"⚠️  Sensor {sensor_id} already mapped to {existing_mapping.user_id}")
+                                continue
+                            
+                            # 1. マッピングテーブルに保存
                             mapping_data = FlexibleSensorMapping(
                                 user_id=user_id,
                                 sensor_id=sensor_id,
-                                sensor_type=SensorType.SKIN_TEMPERATURE,  # デフォルト
-                                competition_id=competition_id,
-                                subject_name=str(row.get('subject_name', ''))
+                                sensor_type=sensor_type,
+                                competition_id=competition_id
+                                # subject_nameなどの関係ない列は保存しない
                             )
                             db.add(mapping_data)
-                
-                processed += 1
+                            processed_mappings += 1
+                            
+                            # 🆕 2. 対応するセンサーデータの状態を更新
+                            from datetime import datetime
+                            updated_records = db.query(RawSensorData).filter_by(
+                                sensor_id=sensor_id,
+                                sensor_type=sensor_type,
+                                competition_id=competition_id,
+                                mapping_status=SensorDataStatus.UNMAPPED
+                            ).update({
+                                'mapping_status': SensorDataStatus.MAPPED,
+                                'mapped_user_id': user_id,
+                                'mapped_at': datetime.now()
+                            })
+                            
+                            updated_sensor_data += updated_records
+                            print(f"✅ Mapped {sensor_id} to {user_id}, updated {updated_records} sensor records")
             
             db.commit()
             
             return MappingResponse(
                 success=True,
-                message=f"マッピングデータを{processed}件処理しました",
-                mapped_sensors=processed
+                message=f"ユーザー{processed_users}人、センサーマッピング{processed_mappings}件を処理し、センサーデータ{updated_sensor_data}件を更新しました（大会: {competition.name}）",
+                mapped_sensors=processed_mappings
             )
             
         except Exception as e:
@@ -249,3 +328,34 @@ class FlexibleCSVService:
                 unmapped_sensors[type_key].append(record.sensor_id)
         
         return unmapped_sensors
+
+    # === サンプルCSVフォーマット例 ===
+
+    def get_mapping_csv_examples():
+        """マッピングCSVの例を返す"""
+        return {
+            "minimal": """user_id
+    test_user_001
+    user002
+    user003""",
+            
+            "with_ignored_columns": """user_id,subject_name,department,age
+    test_user_001,田中太郎,開発部,25
+    user002,佐藤花子,営業部,30
+    user003,山田次郎,総務部,28""",
+            
+            "with_single_sensor": """user_id,subject_name,skin_temp_sensor_id,other_info
+    test_user_001,田中太郎,SKIN_SENSOR_001,備考1
+    user002,佐藤花子,SKIN_SENSOR_002,備考2
+    user003,山田次郎,SKIN_SENSOR_003,備考3""",
+            
+            "with_multiple_sensors": """user_id,skin_temp_sensor_id,core_temp_sensor_id,heart_rate_sensor_id,extra_column
+    test_user_001,SKIN_SENSOR_001,CORE_SENSOR_001,HR_SENSOR_001,無視される
+    user002,SKIN_SENSOR_002,CORE_SENSOR_002,HR_SENSOR_002,これも無視
+    user003,SKIN_SENSOR_003,,HR_SENSOR_003,""",
+            
+            "partial_mapping": """user_id,subject_name,notes,skin_temp_sensor_id
+    test_user_001,田中太郎,メモ1,SKIN_SENSOR_001
+    user002,佐藤花子,メモ2,
+    user003,山田次郎,メモ3,SKIN_SENSOR_003"""
+        }

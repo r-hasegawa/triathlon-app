@@ -34,8 +34,8 @@ class RawSensorData(Base):
     id = Column(Integer, primary_key=True, index=True)
     sensor_id = Column(String(100), nullable=False, index=True)
     sensor_type = Column(Enum(SensorType), nullable=False, index=True)
-    competition_id = Column(String(50), ForeignKey("competitions.competition_id"), nullable=True, index=True)
-    
+    competition_id = Column(String(50), ForeignKey("competitions.competition_id"), nullable=False, index=True)  # ← 必須にする！
+        
     # データ内容
     timestamp = Column(DateTime, nullable=False, index=True)
     data_values = Column(Text, nullable=False)  # JSON形式でセンサー値を保存

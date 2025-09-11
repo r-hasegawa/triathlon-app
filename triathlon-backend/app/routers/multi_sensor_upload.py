@@ -18,7 +18,7 @@ router = APIRouter(prefix="/multi-sensor", tags=["マルチセンサーデータ
 @router.post("/upload/skin-temperature", response_model=UploadResponse)
 async def upload_skin_temperature(
     data_file: UploadFile = File(...),
-    competition_id: Optional[str] = Form(None),
+    competition_id: str = Form(...),  # ✅ Optional[str] → str (必須)
     current_admin: AdminUser = Depends(get_current_admin),
     db: Session = Depends(get_db)
 ):
@@ -34,7 +34,7 @@ async def upload_skin_temperature(
 @router.post("/upload/core-temperature", response_model=UploadResponse)
 async def upload_core_temperature(
     data_file: UploadFile = File(...),
-    competition_id: Optional[str] = Form(None),
+    competition_id: str = Form(...),  # ✅ 必須
     current_admin: AdminUser = Depends(get_current_admin),
     db: Session = Depends(get_db)
 ):
@@ -50,7 +50,7 @@ async def upload_core_temperature(
 @router.post("/upload/heart-rate", response_model=UploadResponse)
 async def upload_heart_rate(
     data_file: UploadFile = File(...),
-    competition_id: Optional[str] = Form(None),
+    competition_id: str = Form(...),  # ✅ 必須
     current_admin: AdminUser = Depends(get_current_admin),
     db: Session = Depends(get_db)
 ):
@@ -66,7 +66,7 @@ async def upload_heart_rate(
 @router.post("/upload/wbgt", response_model=UploadResponse)
 async def upload_wbgt(
     data_file: UploadFile = File(...),
-    competition_id: Optional[str] = Form(None),
+    competition_id: str = Form(...),  # ✅ 必須
     current_admin: AdminUser = Depends(get_current_admin),
     db: Session = Depends(get_db)
 ):
@@ -90,7 +90,11 @@ async def create_mapping(
 ):
     """マッピングファイルアップロード"""
     csv_service = FlexibleCSVService()
-    return await csv_service.process_mapping_file(
+    # ❌ 修正前: process_mapping_file (存在しないメソッド)
+    # return await csv_service.process_mapping_file(
+    
+    # ✅ 修正後: process_mapping_data (実際に存在するメソッド)
+    return await csv_service.process_mapping_data(
         mapping_file=mapping_file,
         competition_id=competition_id,
         db=db

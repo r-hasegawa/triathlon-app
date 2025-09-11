@@ -6,7 +6,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.database import engine, Base
 
-from app.routers import auth, admin, competition, multi_sensor_upload
+from app.routers import auth, admin, user_data, competition, multi_sensor_upload
 
 Base.metadata.create_all(bind=engine)
 
@@ -38,6 +38,7 @@ app.add_middleware(
 
 app.include_router(auth.router, prefix="/auth", tags=["authentication"])
 app.include_router(admin.router, tags=["admin"])  # admin.pyで既にprefix="/admin"設定済み - 重複削除！
+app.include_router(user_data.router)
 app.include_router(competition.router, tags=["competitions"])
 app.include_router(multi_sensor_upload.router, prefix="/admin", tags=["multi-sensor"])
 
