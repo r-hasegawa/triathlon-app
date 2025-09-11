@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Layout } from '@/components/layout/Layout';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -9,37 +10,35 @@ import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import { adminService } from '@/services/adminService';
 
 export const UserManagement: React.FC = () => {
+  const navigate = useNavigate();  // useNavigate フックを使用
   const [users, setUsers] = useState<UserInfo[]>([]);
   const [filteredUsers, setFilteredUsers] = useState<UserInfo[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
-  
   const [showUserModal, setShowUserModal] = useState(false);
   const [editingUser, setEditingUser] = useState<UserInfo | null>(null);
+  const [filters, setFilters] = useState({
+    search: '',
+    status: 'all' as 'all' | 'active' | 'inactive',
+    hasData: 'all' as 'all' | 'with-data' | 'without-data'
+  });
   const [isModalLoading, setIsModalLoading] = useState(false);
 
-  const [filters, setFilters] = useState<UserFilters>({
-    search: '',
-    status: 'all',
-    hasData: 'all',
-  });
-
-  // ユーザー一覧取得
   useEffect(() => {
     fetchUsers();
   }, []);
 
-  // フィルタリング処理
   useEffect(() => {
-    let filtered = users;
+    let filtered = [...users];
 
     // 検索フィルター
-    if (filters.search.trim()) {
-      const searchTerm = filters.search.toLowerCase().trim();
+    if (filters.search) {
+      const searchLower = filters.search.toLowerCase();
       filtered = filtered.filter(user =>
-        user.user_id.toLowerCase().includes(searchTerm) ||
-        user.username.toLowerCase().includes(searchTerm) ||
-        (user.full_name && user.full_name.toLowerCase().includes(searchTerm))
+        user.username.toLowerCase().includes(searchLower) ||
+        user.full_name.toLowerCase().includes(searchLower) ||
+        user.user_id.toLowerCase().includes(searchLower) ||
+        (user.email && user.email.toLowerCase().includes(searchLower))
       );
     }
 
@@ -101,8 +100,11 @@ export const UserManagement: React.FC = () => {
   };
 
   const handleViewData = (user: UserInfo) => {
-    // データ詳細画面にリダイレクト（ユーザー指定）
-    window.open(`/data-detail?user_id=${user.user_id}`, '_blank');
+    // 管理者モードでデータ詳細画面に遷移（ユーザー指定）
+    navigate(`/data-detail?user_id=${user.user_id}`);
+    
+    // 新しいタブで開きたい場合は以下を使用
+    // window.open(`/data-detail?user_id=${user.user_id}`, '_blank');
   };
 
   const handleResetPassword = async (user: UserInfo) => {
@@ -126,18 +128,23 @@ export const UserManagement: React.FC = () => {
     }
   };
 
-  const handleSaveUser = async (userData: UserFormData): Promise<void> => {
-    setIsModalLoading(true);
+  const handleSaveUser = async (userData: any) => {
     try {
       if (editingUser) {
+        // 既存ユーザーの更新
         await adminService.updateUser(editingUser.user_id, userData);
+        alert('ユーザー情報を更新しました');
       } else {
+        // 新規ユーザーの作成
         await adminService.createUser(userData);
+        alert('ユーザーを作成しました');
       }
-      await fetchUsers();
+      
       setShowUserModal(false);
-    } finally {
-      setIsModalLoading(false);
+      await fetchUsers();
+    } catch (error: any) {
+      console.error('Save user error:', error);
+      alert(`ユーザーの保存に失敗しました: ${error.message}`);
     }
   };
 

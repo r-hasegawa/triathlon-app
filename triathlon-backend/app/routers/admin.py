@@ -1,8 +1,8 @@
-from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form
+from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from typing import List, Optional
-from datetime import datetime
+from datetime import datetime, timedelta
 import os
 
 from app.database import get_db
@@ -672,3 +672,100 @@ async def upload_multiple_csv(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Multiple CSV upload failed: {str(e)}"
         )
+
+# 管理者がデータを見るとき用
+@router.get("/users/{user_id}/data")
+async def get_user_data_as_admin(
+    user_id: str,
+    sensor_id: Optional[str] = Query(None, description="特定センサーID"),
+    start_date: Optional[datetime] = Query(None, description="開始日時"),
+    end_date: Optional[datetime] = Query(None, description="終了日時"),
+    page: int = Query(0, ge=0, description="ページ番号（0から開始）"),
+    limit: int = Query(100, ge=1, le=1000, description="1ページあたりの件数"),
+    order: str = Query("desc", regex="^(asc|desc)$", description="並び順（asc/desc）"),
+    current_admin: AdminUser = Depends(get_current_admin),
+    db: Session = Depends(get_db)
+):
+    """管理者として特定ユーザーのセンサデータを取得"""
+    
+    # ユーザーの存在確認
+    user = db.query(User).filter_by(user_id=user_id).first()
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found"
+        )
+    
+    # 基本クエリ
+    query = db.query(SensorData).filter_by(user_id=user_id)
+    
+    # フィルタ条件追加
+    if sensor_id:
+        query = query.filter_by(sensor_id=sensor_id)
+    
+    if start_date:
+        query = query.filter(SensorData.timestamp >= start_date)
+    
+    if end_date:
+        query = query.filter(SensorData.timestamp <= end_date)
+    
+    # 総件数取得
+    total = query.count()
+    
+    # ソート・ページネーション
+    if order == "desc":
+        query = query.order_by(SensorData.timestamp.desc())
+    else:
+        query = query.order_by(SensorData.timestamp.asc())
+    
+    data = query.offset(page * limit).limit(limit).all()
+    
+    return {
+        "user_info": {
+            "user_id": user.user_id,
+            "username": user.username,
+            "full_name": user.full_name
+        },
+        "data": data,
+        "total": total,
+        "page": page,
+        "limit": limit,
+        "has_next": (page + 1) * limit < total
+    }
+
+@router.get("/users/{user_id}/sensors")
+async def get_user_sensors_as_admin(
+    user_id: str,
+    current_admin: AdminUser = Depends(get_current_admin),
+    db: Session = Depends(get_db)
+):
+    """管理者として特定ユーザーのセンサー一覧を取得"""
+    
+    # ユーザーの存在確認
+    user = db.query(User).filter_by(user_id=user_id).first()
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found"
+        )
+    
+    sensors = db.query(SensorMapping)\
+                .filter_by(user_id=user_id, is_active=True)\
+                .all()
+    
+    return {
+        "user_info": {
+            "user_id": user.user_id,
+            "username": user.username,
+            "full_name": user.full_name
+        },
+        "sensors": [
+            {
+                "sensor_id": sensor.sensor_id,
+                "device_type": sensor.device_type,
+                "subject_name": sensor.subject_name,
+                "created_at": sensor.created_at
+            }
+            for sensor in sensors
+        ]
+    }

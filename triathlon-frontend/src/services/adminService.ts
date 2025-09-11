@@ -192,5 +192,46 @@ export const adminService = {
   async getDashboardStats(): Promise<DashboardStats> {
     const response = await api.get<DashboardStats>('/admin/dashboard-stats');
     return response.data;
+  },
+  /**
+   * 特定ユーザーのセンサデータを取得（管理者権限）
+   */
+  async getUserData(
+    userId: string, 
+    params?: {
+      sensorId?: string;
+      startDate?: string;
+      endDate?: string;
+      page?: number;
+      limit?: number;
+      order?: 'asc' | 'desc';
+    }
+  ) {
+    const queryParams = new URLSearchParams();
+    if (params?.sensorId) queryParams.append('sensor_id', params.sensorId);
+    if (params?.startDate) queryParams.append('start_date', params.startDate);
+    if (params?.endDate) queryParams.append('end_date', params.endDate);
+    if (params?.page !== undefined) queryParams.append('page', params.page.toString());
+    if (params?.limit) queryParams.append('limit', params.limit.toString());
+    if (params?.order) queryParams.append('order', params.order);
+
+    const response = await api.get(`/admin/users/${userId}/data?${queryParams}`);
+    return response.data;
+  },
+
+  /**
+   * 特定ユーザーのセンサー一覧を取得（管理者権限）
+   */
+  async getUserSensors(userId: string) {
+    const response = await api.get(`/admin/users/${userId}/sensors`);
+    return response.data;
+  },
+
+  /**
+   * 特定ユーザーの統計情報を取得（管理者権限）
+   */
+  async getUserStats(userId: string) {
+    const response = await api.get(`/admin/users/${userId}/stats`);
+    return response.data;
   }
 };
