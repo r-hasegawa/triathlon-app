@@ -1,52 +1,42 @@
-from pydantic import BaseModel, Field
-from typing import Optional, Dict, Any, List
-from enum import Enum
+"""
+app/schemas/sensor_data.py (実データ対応版)
+"""
+
+from pydantic import BaseModel
 from datetime import datetime
+from typing import Optional, List
+from app.models.flexible_sensor_data import SensorType, UploadStatus
 
-class SensorType(str, Enum):
-    SKIN_TEMPERATURE = "skin_temperature"
-    CORE_TEMPERATURE = "core_temperature"
-    HEART_RATE = "heart_rate"
-    WBGT = "wbgt"
-    OTHER = "other"
-
-class SensorDataStatus(str, Enum):
-    UNMAPPED = "unmapped"
-    MAPPED = "mapped"
-    INVALID_MAPPING = "invalid"
-    ARCHIVED = "archived"
-
-# 既存のスキーマ（互換性維持）
+# === 既存のスキーマ（互換性維持） ===
 class SensorDataBase(BaseModel):
-    sensor_id: str = Field(..., max_length=100)
+    sensor_id: str
+    sensor_type: SensorType
     timestamp: datetime
-    temperature: float = Field(..., ge=-50.0, le=100.0)
-    raw_data: Optional[str] = None
+    value: float
 
 class SensorDataCreate(SensorDataBase):
-    user_id: str
+    competition_id: str
 
 class SensorDataResponse(SensorDataBase):
     id: int
-    user_id: str
+    user_id: Optional[str] = None
+    competition_id: str
     created_at: datetime
     
     class Config:
         from_attributes = True
 
 class SensorMappingBase(BaseModel):
-    sensor_id: str = Field(..., max_length=100)
-    user_id: str = Field(..., max_length=50)
-    subject_name: Optional[str] = None
-    device_type: str = "temperature_sensor"
-    calibration_offset: float = 0.0
+    sensor_id: str
+    sensor_type: SensorType
+    user_id: str
 
 class SensorMappingCreate(SensorMappingBase):
-    pass
+    competition_id: str
 
 class SensorMappingResponse(SensorMappingBase):
     id: int
-    is_active: bool
+    competition_id: str
     created_at: datetime
     
     class Config:
@@ -54,11 +44,10 @@ class SensorMappingResponse(SensorMappingBase):
 
 class SensorDataStats(BaseModel):
     total_records: int
-    min_temperature: float
-    max_temperature: float
-    avg_temperature: float
-    start_time: datetime
-    end_time: datetime
+    mapped_records: int
+    unmapped_records: int
+    unique_sensors: int
+    date_range: dict
 
 class SensorDataPaginated(BaseModel):
     data: List[SensorDataResponse]
@@ -67,30 +56,149 @@ class SensorDataPaginated(BaseModel):
     limit: int
     has_next: bool
 
-# 新しいマルチセンサー用スキーマ
+# === 🆕 実データ対応スキーマ ===
+
+class UploadBatchResponse(BaseModel):
+    batch_id: str
+    sensor_type: str  # SensorType のenum値
+    file_name: str
+    total_records: int
+    success_records: int
+    failed_records: int
+    status: str  # UploadStatus のenum値
+    uploaded_at: datetime
+    uploaded_by: str
+    competition_id: str
+    
+    class Config:
+        from_attributes = True
+
+class SkinTemperatureResponse(BaseModel):
+    id: int
+    halshare_wearer_name: str
+    halshare_id: str
+    datetime: datetime
+    temperature: float
+    upload_batch_id: str
+    competition_id: str
+    mapped_user_id: Optional[str] = None
+    
+    class Config:
+        from_attributes = True
+
+class CoreTemperatureResponse(BaseModel):
+    id: int
+    capsule_id: str
+    monitor_id: str
+    datetime: datetime
+    temperature: Optional[float]
+    status: Optional[str]
+    upload_batch_id: str
+    competition_id: str
+    mapped_user_id: Optional[str] = None
+    
+    class Config:
+        from_attributes = True
+
+class HeartRateResponse(BaseModel):
+    id: int
+    sensor_id: str
+    time: datetime
+    heart_rate: Optional[int]
+    upload_batch_id: str
+    competition_id: str
+    mapped_user_id: Optional[str] = None
+    
+    class Config:
+        from_attributes = True
+
+class SensorMappingResponse(BaseModel):
+    id: int
+    user_id: str
+    competition_id: str
+    skin_temp_sensor_id: Optional[str] = None
+    core_temp_sensor_id: Optional[str] = None
+    heart_rate_sensor_id: Optional[str] = None
+    race_record_id: Optional[str] = None
+    uploaded_at: datetime
+    upload_batch_id: str
+    
+    class Config:
+        from_attributes = True
+
+# === アップロード関連スキーマ ===
+
+class UploadResult(BaseModel):
+    file: str
+    batch_id: Optional[str] = None
+    total: Optional[int] = None
+    success: Optional[int] = None
+    failed: Optional[int] = None
+    status: str
+    error: Optional[str] = None
+    sensor_ids: Optional[List[str]] = None
+    trackpoints_total: Optional[int] = None  # TCX用
+    sensors_found: Optional[int] = None      # カプセル温用
+
+class BatchDeleteResponse(BaseModel):
+    message: str
+    sensor_type: str
+    file_name: str
+    deleted_records: int
+
+class BatchListResponse(BaseModel):
+    batches: List[UploadBatchResponse]
+    total: int
+
+# === 統計・サマリー用スキーマ ===
+
+class DataSummaryResponse(BaseModel):
+    total_batches: int
+    total_records: int
+    records_by_type: dict  # {"skin_temperature": 100, "core_temperature": 50, ...}
+    recent_uploads: List[UploadBatchResponse]
+    competitions_with_data: List[str]
+
+class MappingStatusResponse(BaseModel):
+    total_users: int
+    mapped_users: int
+    unmapped_sensors: int
+    mapping_coverage: float  # パーセンテージ
+
+# === エラーレポート用スキーマ ===
+
+class UploadError(BaseModel):
+    line_number: int
+    error_message: str
+    raw_data: str
+
+class DetailedUploadResult(UploadResult):
+    errors: List[UploadError] = []
+    warnings: List[str] = []
+    processing_time_seconds: float
+
+# === 🔧 flexible_csv_service.py用のスキーマ（互換性） ===
+
 class UploadResponse(BaseModel):
     success: bool
     message: str
     total_records: int
     processed_records: int
-    error_details: Optional[str] = None
 
 class MappingResponse(BaseModel):
     success: bool
     message: str
     mapped_sensors: int
-    error_details: Optional[str] = None
 
 class DataSummaryResponse(BaseModel):
-    total_sensor_records: int
+    total_records: int
     mapped_records: int
     unmapped_records: int
-    sensor_type_counts: Dict[str, int]
-    wbgt_records: int
-    mapping_records: int
-    competition_id: Optional[str]
+    sensor_counts: dict
+    competition_id: Optional[str] = None
 
 class MappingStatusResponse(BaseModel):
-    status_counts: Dict[str, int]
-    unmapped_by_sensor_type: Dict[str, int]
-    competition_id: Optional[str]
+    total_users: int
+    mapped_users: int
+    unmapped_sensors: int
+    mapping_coverage: float

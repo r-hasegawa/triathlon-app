@@ -5,9 +5,12 @@ from typing import Optional, List
 from app.utils.dependencies import get_current_admin, get_db
 from app.models.user import AdminUser
 from app.services.flexible_csv_service import FlexibleCSVService
+
+# 🔧 正しいインポート先に修正
+from app.models.flexible_sensor_data import SensorType, SensorDataStatus
 from app.schemas.sensor_data import (
     UploadResponse, MappingResponse, DataSummaryResponse, 
-    MappingStatusResponse, SensorType, SensorDataStatus
+    MappingStatusResponse
 )
 
 # 管理者専用エンドポイント - prefix="/admin" はmain.pyで設定
@@ -18,7 +21,7 @@ router = APIRouter(prefix="/multi-sensor", tags=["マルチセンサーデータ
 @router.post("/upload/skin-temperature", response_model=UploadResponse)
 async def upload_skin_temperature(
     data_file: UploadFile = File(...),
-    competition_id: str = Form(...),  # ✅ Optional[str] → str (必須)
+    competition_id: str = Form(...),
     current_admin: AdminUser = Depends(get_current_admin),
     db: Session = Depends(get_db)
 ):
@@ -34,7 +37,7 @@ async def upload_skin_temperature(
 @router.post("/upload/core-temperature", response_model=UploadResponse)
 async def upload_core_temperature(
     data_file: UploadFile = File(...),
-    competition_id: str = Form(...),  # ✅ 必須
+    competition_id: str = Form(...),
     current_admin: AdminUser = Depends(get_current_admin),
     db: Session = Depends(get_db)
 ):
@@ -50,7 +53,7 @@ async def upload_core_temperature(
 @router.post("/upload/heart-rate", response_model=UploadResponse)
 async def upload_heart_rate(
     data_file: UploadFile = File(...),
-    competition_id: str = Form(...),  # ✅ 必須
+    competition_id: str = Form(...),
     current_admin: AdminUser = Depends(get_current_admin),
     db: Session = Depends(get_db)
 ):
@@ -66,7 +69,7 @@ async def upload_heart_rate(
 @router.post("/upload/wbgt", response_model=UploadResponse)
 async def upload_wbgt(
     data_file: UploadFile = File(...),
-    competition_id: str = Form(...),  # ✅ 必須
+    competition_id: str = Form(...),
     current_admin: AdminUser = Depends(get_current_admin),
     db: Session = Depends(get_db)
 ):
@@ -90,10 +93,6 @@ async def create_mapping(
 ):
     """マッピングファイルアップロード"""
     csv_service = FlexibleCSVService()
-    # ❌ 修正前: process_mapping_file (存在しないメソッド)
-    # return await csv_service.process_mapping_file(
-    
-    # ✅ 修正後: process_mapping_data (実際に存在するメソッド)
     return await csv_service.process_mapping_data(
         mapping_file=mapping_file,
         competition_id=competition_id,

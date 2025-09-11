@@ -1,6 +1,5 @@
 from sqlalchemy import Column, Integer, String, DateTime, Boolean, Text
 from sqlalchemy.sql import func
-from sqlalchemy.orm import relationship
 from app.database import Base
 
 class User(Base):
@@ -16,12 +15,9 @@ class User(Base):
     is_admin = Column(Boolean, default=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
-    # 🆕 新しいリレーション追加
-    raw_sensor_data = relationship("RawSensorData", foreign_keys="RawSensorData.mapped_user_id", back_populates="mapped_user")
-    flexible_mappings = relationship("FlexibleSensorMapping", back_populates="user", cascade="all, delete-orphan")
-    skin_temperature_data = relationship("SkinTemperatureData", back_populates="user", cascade="all, delete-orphan")
-    core_temperature_data = relationship("CoreTemperatureData", back_populates="user", cascade="all, delete-orphan")
-    heart_rate_data = relationship("HeartRateData", back_populates="user", cascade="all, delete-orphan")
+    
+    # 🔧 循環参照を避けるためリレーションを削除
+    # relationshipは flexible_sensor_data.py で定義
     
     def __repr__(self):
         return f"<User(user_id='{self.user_id}', username='{self.username}')>"

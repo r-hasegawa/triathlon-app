@@ -1,7 +1,7 @@
 """
 app/models/flexible_sensor_data.py
 
-マッピング不要でもデータを保持できる柔軟なセンサーデータモデル
+実際のデータ形式に対応した修正版
 """
 
 from sqlalchemy import Column, Integer, String, Float, DateTime, Text, ForeignKey, Index, Boolean, func, Enum
@@ -25,6 +25,11 @@ class SensorType(str, enum.Enum):
     WBGT = "wbgt"                            # WBGT環境データ
     OTHER = "other"                          # その他
 
+class UploadStatus(str, enum.Enum):
+    SUCCESS = "success"
+    FAILED = "failed"
+    PARTIAL = "partial"
+
 # === 生センサーデータテーブル（マッピング不要） ===
 
 class RawSensorData(Base):
@@ -34,7 +39,7 @@ class RawSensorData(Base):
     id = Column(Integer, primary_key=True, index=True)
     sensor_id = Column(String(100), nullable=False, index=True)
     sensor_type = Column(Enum(SensorType), nullable=False, index=True)
-    competition_id = Column(String(50), ForeignKey("competitions.competition_id"), nullable=False, index=True)  # ← 必須にする！
+    competition_id = Column(String(50), ForeignKey("competitions.competition_id"), nullable=False, index=True)
         
     # データ内容
     timestamp = Column(DateTime, nullable=False, index=True)
@@ -70,80 +75,151 @@ class RawSensorData(Base):
         """Python辞書からデータ値を設定"""
         self.data_values = json.dumps(data_dict)
 
-# === センサー種別ごとの専用テーブル ===
+# === 🆕 実際のデータ形式に対応した専用テーブル ===
 
 class SkinTemperatureData(Base):
-    """体表温データ（halshare）"""
+    """体表温データ（halshare）- 実データ形式対応"""
     __tablename__ = "skin_temperature_data"
     
     id = Column(Integer, primary_key=True, index=True)
-    raw_data_id = Column(Integer, ForeignKey("raw_sensor_data.id"), nullable=False, unique=True)
-    sensor_id = Column(String(100), nullable=False, index=True)
-    user_id = Column(String(50), ForeignKey("users.user_id"), nullable=True, index=True)
-    competition_id = Column(String(50), ForeignKey("competitions.competition_id"), nullable=True, index=True)
-    timestamp = Column(DateTime, nullable=False, index=True)
     
-    # 体表温固有データ
-    skin_temperature = Column(Float, nullable=False)
-    sensor_location = Column(String(50), nullable=True)
-    ambient_temperature = Column(Float, nullable=True)
-    battery_level = Column(Float, nullable=True)
+    # センサー識別（実データに対応）
+    halshare_wearer_name = Column(String(100), nullable=False)  # 今後のメイン識別子候補
+    halshare_id = Column(String(100), nullable=False, index=True)  # 現在のメイン識別子
     
-    created_at = Column(DateTime, server_default=func.now())
+    # 測定データ
+    datetime = Column(DateTime, nullable=False, index=True)
+    temperature = Column(Float, nullable=False)
+    
+    # アップロード管理
+    upload_batch_id = Column(String(200), nullable=False, index=True)  # {日時}_{ファイル名}
+    competition_id = Column(String(50), ForeignKey("competitions.competition_id"), nullable=False, index=True)
+    uploaded_at = Column(DateTime, server_default=func.now())
+    
+    # マッピング（後から設定）
+    mapped_user_id = Column(String(50), ForeignKey("users.user_id"), nullable=True, index=True)
+    mapped_at = Column(DateTime, nullable=True)
     
     # リレーション
-    raw_data = relationship("RawSensorData")
-    user = relationship("User")
+    user = relationship("User", foreign_keys=[mapped_user_id])
     competition = relationship("Competition")
 
 class CoreTemperatureData(Base):
-    """カプセル体温データ（e-Celcius）"""
+    """カプセル体温データ（e-Celcius）- 実データ形式対応"""
     __tablename__ = "core_temperature_data"
     
     id = Column(Integer, primary_key=True, index=True)
-    raw_data_id = Column(Integer, ForeignKey("raw_sensor_data.id"), nullable=False, unique=True)
-    sensor_id = Column(String(100), nullable=False, index=True)
-    user_id = Column(String(50), ForeignKey("users.user_id"), nullable=True, index=True)
-    competition_id = Column(String(50), ForeignKey("competitions.competition_id"), nullable=True, index=True)
-    timestamp = Column(DateTime, nullable=False, index=True)
     
-    # カプセル体温固有データ
-    core_temperature = Column(Float, nullable=False)
-    capsule_id = Column(String(50), nullable=True)
-    signal_strength = Column(Float, nullable=True)
-    battery_level = Column(Float, nullable=True)
+    # センサー識別（実データに対応）
+    capsule_id = Column(String(100), nullable=False, index=True)  # Pill n-1, n-2, n-3の識別子
+    monitor_id = Column(String(100), nullable=False)  # モニター識別子（ファイル名由来）
     
-    created_at = Column(DateTime, server_default=func.now())
+    # 測定データ
+    datetime = Column(DateTime, nullable=False, index=True)  # Date + Hour 結合
+    temperature = Column(Float, nullable=True)  # Missing dataの場合null
+    status = Column(String(50), nullable=True)  # "Synchronized", "Missing data" etc.
+    
+    # アップロード管理
+    upload_batch_id = Column(String(200), nullable=False, index=True)
+    competition_id = Column(String(50), ForeignKey("competitions.competition_id"), nullable=False, index=True)
+    uploaded_at = Column(DateTime, server_default=func.now())
+    
+    # マッピング（後から設定）
+    mapped_user_id = Column(String(50), ForeignKey("users.user_id"), nullable=True, index=True)
+    mapped_at = Column(DateTime, nullable=True)
     
     # リレーション
-    raw_data = relationship("RawSensorData")
-    user = relationship("User")
+    user = relationship("User", foreign_keys=[mapped_user_id])
     competition = relationship("Competition")
 
 class HeartRateData(Base):
-    """心拍データ（Garmin）"""
+    """心拍データ（Garmin TCX）- 実データ形式対応"""
     __tablename__ = "heart_rate_data"
     
     id = Column(Integer, primary_key=True, index=True)
-    raw_data_id = Column(Integer, ForeignKey("raw_sensor_data.id"), nullable=False, unique=True)
-    sensor_id = Column(String(100), nullable=False, index=True)
-    user_id = Column(String(50), ForeignKey("users.user_id"), nullable=True, index=True)
-    competition_id = Column(String(50), ForeignKey("competitions.competition_id"), nullable=True, index=True)
-    timestamp = Column(DateTime, nullable=False, index=True)
     
-    # 心拍固有データ
-    heart_rate = Column(Integer, nullable=False)
-    heart_rate_zone = Column(Integer, nullable=True)
-    rrinterval = Column(Float, nullable=True)
-    activity_type = Column(String(50), nullable=True)
-    calories = Column(Float, nullable=True)
+    # センサー識別（入力時に手動指定）
+    sensor_id = Column(String(100), nullable=False, index=True)  # 入力時に指定
     
-    created_at = Column(DateTime, server_default=func.now())
+    # 測定データ
+    time = Column(DateTime, nullable=False, index=True)  # TCXのTime要素
+    heart_rate = Column(Integer, nullable=True)  # HeartRateBpmのValue
+    
+    # アップロード管理
+    upload_batch_id = Column(String(200), nullable=False, index=True)
+    competition_id = Column(String(50), ForeignKey("competitions.competition_id"), nullable=False, index=True)
+    uploaded_at = Column(DateTime, server_default=func.now())
+    
+    # マッピング（後から設定）
+    mapped_user_id = Column(String(50), ForeignKey("users.user_id"), nullable=True, index=True)
+    mapped_at = Column(DateTime, nullable=True)
     
     # リレーション
-    raw_data = relationship("RawSensorData")
-    user = relationship("User")
+    user = relationship("User", foreign_keys=[mapped_user_id])
     competition = relationship("Competition")
+
+# === 🆕 アップロードバッチ管理 ===
+class UploadBatch(Base):
+    """アップロードバッチ管理"""
+    __tablename__ = "upload_batches"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    batch_id = Column(String(200), unique=True, nullable=False, index=True)  # {日時}_{ファイル名}
+    
+    # バッチ情報
+    sensor_type = Column(Enum(SensorType), nullable=False)
+    file_name = Column(String(200), nullable=False)
+    file_size = Column(Integer, nullable=True)
+    
+    # 処理結果
+    total_records = Column(Integer, nullable=False, default=0)
+    success_records = Column(Integer, nullable=False, default=0)
+    failed_records = Column(Integer, nullable=False, default=0)
+    status = Column(Enum(UploadStatus), nullable=False, default=UploadStatus.SUCCESS)
+    
+    # メタデータ
+    competition_id = Column(String(50), ForeignKey("competitions.competition_id"), nullable=False, index=True)
+    uploaded_by = Column(String(50), nullable=False)  # 管理者ID
+    uploaded_at = Column(DateTime, server_default=func.now())
+    
+    # エラー情報
+    error_message = Column(Text, nullable=True)
+    processing_notes = Column(Text, nullable=True)
+    
+    # リレーション
+    competition = relationship("Competition")
+
+# === 🆕 センサーマッピング（マッピングデータ用） ===
+class SensorMapping(Base):
+    """センサーマッピング"""
+    __tablename__ = "sensor_mappings"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    
+    # マッピング対象
+    user_id = Column(String(50), ForeignKey("users.user_id"), nullable=False, index=True)
+    competition_id = Column(String(50), ForeignKey("competitions.competition_id"), nullable=False, index=True)
+    
+    # センサーID
+    skin_temp_sensor_id = Column(String(100), nullable=True)     # 体表温センサID
+    core_temp_sensor_id = Column(String(100), nullable=True)     # カプセル体温センサID  
+    heart_rate_sensor_id = Column(String(100), nullable=True)    # 心拍センサID
+    race_record_id = Column(String(100), nullable=True)          # 大会記録ID（ゼッケン番号）
+    
+    # メタデータ
+    uploaded_at = Column(DateTime, server_default=func.now())
+    upload_batch_id = Column(String(200), nullable=False, index=True)
+    
+    # リレーション
+    user = relationship("User", foreign_keys=[user_id])
+    competition = relationship("Competition")
+    
+    # ユニーク制約
+    __table_args__ = (
+        Index('idx_user_competition_mapping', 'user_id', 'competition_id', unique=True),
+    )
+
+# === WBGT環境データ（既存のまま） ===
 
 class WBGTData(Base):
     """WBGT環境データ"""
@@ -169,7 +245,7 @@ class WBGTData(Base):
     raw_data = relationship("RawSensorData")
     competition = relationship("Competition")
 
-# === 柔軟なセンサーマッピング ===
+# === 柔軟なセンサーマッピング（既存のまま） ===
 
 class FlexibleSensorMapping(Base):
     """柔軟なセンサーマッピング"""
@@ -195,7 +271,7 @@ class FlexibleSensorMapping(Base):
     updated_at = Column(DateTime, onupdate=func.now())
     
     # リレーション
-    user = relationship("User")
+    user = relationship("User", foreign_keys=[user_id])
     competition = relationship("Competition")
     
     # ユニーク制約
@@ -226,5 +302,5 @@ class SensorDataView(Base):
     
     # リレーション
     raw_data = relationship("RawSensorData")
-    user = relationship("User")
+    user = relationship("User", foreign_keys=[user_id])
     competition = relationship("Competition")

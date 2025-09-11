@@ -13,6 +13,9 @@ import { MultiSensorStatus } from '@/pages/MultiSensorStatus';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import { ErrorBoundary } from '@/components/ui/ErrorBoundary';
 
+// 🆕 新しいページを追加
+import { SensorDataUpload } from '@/pages/SensorDataUpload';
+
 // スタイルインポート
 import '@/styles/globals.css';
 
@@ -65,7 +68,8 @@ const AppRoutes: React.FC = () => {
         <Routes>
           <Route 
             path="/login" 
-            element={isAuthenticated ? <Navigate to="/dashboard" replace /> : <Login />} 
+            element={isAuthenticated ? 
+              <Navigate to="/dashboard" replace /> : <Login />} 
           />
           
           <Route
@@ -77,23 +81,37 @@ const AppRoutes: React.FC = () => {
             }
           />
 
-          <Route 
-            path="/multi-sensor/upload" 
+          {/* データ詳細ページ */}
+          <Route
+            path="/data/:id"
             element={
-              <AdminRoute>
-                <MultiSensorUpload />
-              </AdminRoute>
-            } 
+              <ProtectedRoute>
+                <DataDetail />
+              </ProtectedRoute>
+            }
           />
-          <Route 
-            path="/multi-sensor/status" 
+
+          {/* CSVアップロード */}
+          <Route
+            path="/upload"
             element={
-              <AdminRoute>
-                <MultiSensorStatus />
-              </AdminRoute>
-            } 
+              <ProtectedRoute>
+                <CSVUpload />
+              </ProtectedRoute>
+            }
           />
-          
+
+          {/* アップロード履歴 */}
+          <Route
+            path="/history"
+            element={
+              <ProtectedRoute>
+                <UploadHistory />
+              </ProtectedRoute>
+            }
+          />
+
+          {/* 管理者専用ルート */}
           <Route
             path="/admin/users"
             element={
@@ -112,7 +130,36 @@ const AppRoutes: React.FC = () => {
             }
           />
 
-          {/* 🆕 マルチセンサーアップロードページ */}
+          {/* マルチセンサー機能 */}
+          <Route 
+            path="/multi-sensor/upload" 
+            element={
+              <AdminRoute>
+                <MultiSensorUpload />
+              </AdminRoute>
+            } 
+          />
+          
+          <Route 
+            path="/multi-sensor/status" 
+            element={
+              <AdminRoute>
+                <MultiSensorStatus />
+              </AdminRoute>
+            } 
+          />
+
+          {/* 🆕 新しい実データ対応アップロード画面 */}
+          <Route
+            path="/sensor-data-upload" 
+            element={
+              <AdminRoute>
+                <SensorDataUpload />
+              </AdminRoute>
+            } 
+          />
+
+          {/* 🔄 従来の管理者マルチセンサー（互換性維持） */}
           <Route
             path="/admin/multi-sensor" 
             element={

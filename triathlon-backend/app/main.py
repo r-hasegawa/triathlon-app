@@ -1,24 +1,25 @@
 """
-app/main.py (エンドポイント規則統一版)
+app/main.py (最終修正版)
 """
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.database import engine, Base
 
-from app.routers import auth, admin, user_data, competition, multi_sensor_upload
+# 🔧 存在するルーターのみインポート
+from app.routers import auth, admin, competition, multi_sensor_upload, user_data
 
 Base.metadata.create_all(bind=engine)
 
 app = FastAPI(
-    title="Triathlon Sensor Data Management API",
-    description="マルチセンサー対応トライアスロンデータ管理システム",
-    version="2.0.0"
+    title="Triathlon Real Data Format Management API",
+    description="実データ形式対応トライアスロンデータ管理システム",
+    version="3.0.0"
 )
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=["http://localhost:3000", "http://localhost:5173"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -30,23 +31,24 @@ app.add_middleware(
 # me/ → 一般ユーザー本人のデータ  
 # public/ → 公共の環境データ
 
-# エンドポイント規則に従ったルーター設定:
-# auth/ → 認証 (auth.pyにprefixなし)
-# admin/ → 管理者専用 (admin.pyで/adminが設定済み)
-# me/ → 一般ユーザー本人のデータ  
-# public/ → 公共の環境データ (competition.pyで設定)
-
 app.include_router(auth.router, prefix="/auth", tags=["authentication"])
-app.include_router(admin.router, tags=["admin"])  # admin.pyで既にprefix="/admin"設定済み - 重複削除！
-app.include_router(user_data.router)
-app.include_router(competition.router, tags=["competitions"])
+app.include_router(admin.router, tags=["admin"])  # admin.pyで既にprefix="/admin"設定済み
+app.include_router(user_data.router, tags=["user-data"])  # /me/* endpoints
+app.include_router(competition.router, tags=["competitions"])  # /public/* endpoints
 app.include_router(multi_sensor_upload.router, prefix="/admin", tags=["multi-sensor"])
 
 @app.get("/")
 async def root():
     return {
-        "message": "Triathlon Multi-Sensor Data Management API v2.0",
+        "message": "Triathlon Real Data Format Management API v3.0",
         "status": "running",
+        "new_features": [
+            "halshare CSV format support (halshareWearerName, halshareId, datetime, temperature)",
+            "e-Celcius CSV format support (capsule_id, monitor_id, datetime, temperature, status)", 
+            "Garmin TCX format support (sensor_id, time, heart_rate)",
+            "Batch upload management with file-based deletion",
+            "Upload history tracking and error reporting"
+        ],
         "endpoints": {
             "auth": "/auth/*",
             "admin": "/admin/*", 
@@ -57,4 +59,9 @@ async def root():
 
 @app.get("/health")
 async def health_check():
-    return {"status": "healthy", "version": "2.0.0"}
+    return {
+        "status": "healthy", 
+        "version": "3.0.0",
+        "database": "real_data_format_ready",
+        "supported_formats": ["halshare", "e-Celcius", "TCX"]
+    }

@@ -1,25 +1,30 @@
 """
-app/models/__init__.py (新システムのみ版)
+app/models/__init__.py (実データ対応版)
 """
 
 # Core models
 from .user import User, AdminUser
 from .competition import Competition, RaceRecord
 
-# 🆕 新しいマルチセンサーシステムのみ
+# 🆕 実データ対応マルチセンサーシステム
 from .flexible_sensor_data import (
     # Enums
     SensorType,
     SensorDataStatus,
+    UploadStatus,
     
     # Core tables
     RawSensorData,
     FlexibleSensorMapping,
     
-    # Specialized tables
+    # 🆕 実データ対応テーブル
     SkinTemperatureData,
     CoreTemperatureData, 
     HeartRateData,
+    UploadBatch,
+    SensorMapping,
+    
+    # Environment data
     WBGTData,
     
     # View
@@ -33,14 +38,21 @@ __all__ = [
     "Competition",
     "RaceRecord",
     
-    # New multi-sensor system
+    # Multi-sensor system
     "SensorType",
-    "SensorDataStatus", 
+    "SensorDataStatus",
+    "UploadStatus", 
     "RawSensorData",
     "FlexibleSensorMapping",
+    
+    # 🆕 Real data format tables
     "SkinTemperatureData",
     "CoreTemperatureData",
-    "HeartRateData", 
+    "HeartRateData",
+    "UploadBatch",
+    "SensorMapping",
+    
+    # Environment & View
     "WBGTData",
     "SensorDataView"
 ]
