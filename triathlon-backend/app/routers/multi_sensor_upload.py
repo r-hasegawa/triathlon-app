@@ -10,6 +10,7 @@ from app.schemas.sensor_data import (
     MappingStatusResponse, SensorType, SensorDataStatus
 )
 
+# 管理者専用エンドポイント - prefix="/admin" はmain.pyで設定
 router = APIRouter(prefix="/multi-sensor", tags=["マルチセンサーデータ管理"])
 
 # === データアップロード ===
@@ -69,80 +70,33 @@ async def upload_wbgt(
     current_admin: AdminUser = Depends(get_current_admin),
     db: Session = Depends(get_db)
 ):
-    """WBGT環境データアップロード（上書き対応）"""
+    """WBGT環境データアップロード"""
     csv_service = FlexibleCSVService()
-    return await csv_service.process_wbgt_data(
-        wbgt_file=data_file,
+    return await csv_service.process_sensor_data_only(
+        sensor_file=data_file,
+        sensor_type=SensorType.WBGT,
         competition_id=competition_id,
-        db=db,
-        overwrite=True
+        db=db
     )
 
-@router.post("/upload/mapping", response_model=MappingResponse)
-async def upload_mapping(
+# === マッピング管理 ===
+
+@router.post("/mapping", response_model=MappingResponse)
+async def create_mapping(
     mapping_file: UploadFile = File(...),
-    competition_id: Optional[str] = Form(None),
+    competition_id: str = Form(...),
     current_admin: AdminUser = Depends(get_current_admin),
     db: Session = Depends(get_db)
 ):
-    """マッピングデータアップロード（上書き対応）"""
+    """マッピングファイルアップロード"""
     csv_service = FlexibleCSVService()
-    return await csv_service.process_mapping_data(
+    return await csv_service.process_mapping_file(
         mapping_file=mapping_file,
         competition_id=competition_id,
-        db=db,
-        overwrite=True
+        db=db
     )
 
-# === 複数ファイル同時アップロード ===
-
-@router.post("/upload/multiple-sensors", response_model=List[UploadResponse])
-async def upload_multiple_sensors(
-    sensor_type: SensorType = Form(...),
-    data_files: List[UploadFile] = File(...),
-    competition_id: Optional[str] = Form(None),
-    current_admin: AdminUser = Depends(get_current_admin),
-    db: Session = Depends(get_db)
-):
-    """同種別センサーデータ複数同時アップロード"""
-    if sensor_type in [SensorType.WBGT]:
-        raise HTTPException(status_code=400, detail="WBGTは単一ファイルのみ対応")
-    
-    csv_service = FlexibleCSVService()
-    results = []
-    
-    for data_file in data_files:
-        try:
-            result = await csv_service.process_sensor_data_only(
-                sensor_file=data_file,
-                sensor_type=sensor_type,
-                competition_id=competition_id,
-                db=db
-            )
-            results.append(result)
-        except Exception as e:
-            results.append(UploadResponse(
-                success=False,
-                message=f"ファイル{data_file.filename}の処理に失敗: {str(e)}",
-                total_records=0,
-                processed_records=0
-            ))
-    
-    return results
-
-# === データ状況確認 ===
-
-@router.get("/status", response_model=DataSummaryResponse)
-async def get_data_status(
-    competition_id: Optional[str] = Query(None),
-    current_admin: AdminUser = Depends(get_current_admin),
-    db: Session = Depends(get_db)
-):
-    """データ状況サマリー"""
-    csv_service = FlexibleCSVService()
-    return csv_service.get_data_summary(db, competition_id)
-
-@router.get("/mapping-status", response_model=MappingStatusResponse)
+@router.get("/mapping/status", response_model=MappingStatusResponse)
 async def get_mapping_status(
     competition_id: Optional[str] = Query(None),
     current_admin: AdminUser = Depends(get_current_admin),
@@ -152,13 +106,24 @@ async def get_mapping_status(
     csv_service = FlexibleCSVService()
     return csv_service.get_mapping_status(db, competition_id)
 
-@router.get("/unmapped-sensors")
-async def get_unmapped_sensors(
-    sensor_type: Optional[SensorType] = Query(None),
+# === データ確認・管理 ===
+
+@router.get("/data/summary", response_model=DataSummaryResponse)
+async def get_data_summary(
     competition_id: Optional[str] = Query(None),
+    sensor_type: Optional[SensorType] = Query(None),
     current_admin: AdminUser = Depends(get_current_admin),
     db: Session = Depends(get_db)
 ):
-    """未マッピングセンサー一覧"""
+    """データサマリー取得"""
     csv_service = FlexibleCSVService()
-    return csv_service.get_unmapped_sensors(db, sensor_type, competition_id)
+    return csv_service.get_data_summary(db, competition_id, sensor_type)
+
+@router.get("/data/unmapped")
+async def get_unmapped_data(
+    current_admin: AdminUser = Depends(get_current_admin),
+    db: Session = Depends(get_db)
+):
+    """未マッピングデータ一覧"""
+    csv_service = FlexibleCSVService()
+    return csv_service.get_unmapped_data_summary(db)

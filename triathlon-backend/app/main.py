@@ -1,15 +1,13 @@
 """
-app/main.py (新システムのみ版)
+app/main.py (エンドポイント規則統一版)
 """
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.database import engine, Base
 
-# 🆕 新しいルーターのみインポート
 from app.routers import auth, admin, competition, multi_sensor_upload
 
-# データベーステーブル作成
 Base.metadata.create_all(bind=engine)
 
 app = FastAPI(
@@ -18,7 +16,6 @@ app = FastAPI(
     version="2.0.0"
 )
 
-# CORS設定
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:3000"],
@@ -27,23 +24,34 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# 🆕 新しいルーターのみ追加
+# エンドポイント規則:
+# auth/ → 認証
+# admin/ → 管理者専用
+# me/ → 一般ユーザー本人のデータ  
+# public/ → 公共の環境データ
+
+# エンドポイント規則に従ったルーター設定:
+# auth/ → 認証 (auth.pyにprefixなし)
+# admin/ → 管理者専用 (admin.pyで/adminが設定済み)
+# me/ → 一般ユーザー本人のデータ  
+# public/ → 公共の環境データ (competition.pyで設定)
+
 app.include_router(auth.router, prefix="/auth", tags=["authentication"])
-app.include_router(admin.router, prefix="/admin", tags=["admin"])
-app.include_router(competition.router, prefix="/competitions", tags=["competitions"])
-app.include_router(multi_sensor_upload.router, prefix="/api", tags=["multi-sensor"])
+app.include_router(admin.router, tags=["admin"])  # admin.pyで既にprefix="/admin"設定済み - 重複削除！
+app.include_router(competition.router, tags=["competitions"])
+app.include_router(multi_sensor_upload.router, prefix="/admin", tags=["multi-sensor"])
 
 @app.get("/")
 async def root():
     return {
         "message": "Triathlon Multi-Sensor Data Management API v2.0",
         "status": "running",
-        "features": [
-            "Multi-sensor data upload (skin temp, core temp, heart rate, WBGT)",
-            "Flexible mapping system",
-            "Competition management",
-            "User management"
-        ]
+        "endpoints": {
+            "auth": "/auth/*",
+            "admin": "/admin/*", 
+            "user_data": "/me/*",
+            "public": "/public/*"
+        }
     }
 
 @app.get("/health")

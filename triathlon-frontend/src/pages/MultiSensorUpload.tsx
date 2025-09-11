@@ -1,9 +1,12 @@
+/**
+ * MultiSensorUpload.tsx - エンドポイント規則対応版（完全版）
+ */
+
 import React, { useState, useEffect } from 'react';
 import { Layout } from '@/components/layout/Layout';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
-import { useAuth } from '@/contexts/AuthContext';
 
 interface Competition {
   competition_id: string;
@@ -16,12 +19,12 @@ interface UploadResult {
   message: string;
   total_records: number;
   processed_records: number;
+  filename: string;
+  type: string;
+  status: string;
 }
 
 export const MultiSensorUpload: React.FC = () => {
-  const { token } = useAuth();
-  
-  // State variables
   const [competitions, setCompetitions] = useState<Competition[]>([]);
   const [selectedCompetition, setSelectedCompetition] = useState('');
   const [selectedSensorType, setSelectedSensorType] = useState('');
@@ -30,9 +33,8 @@ export const MultiSensorUpload: React.FC = () => {
   const [mappingFile, setMappingFile] = useState<File | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [competitionsLoading, setCompetitionsLoading] = useState(true);
-  const [results, setResults] = useState<any[]>([]);
+  const [results, setResults] = useState<UploadResult[]>([]);
 
-  // Load competitions on mount
   useEffect(() => {
     loadCompetitions();
   }, []);
@@ -40,13 +42,20 @@ export const MultiSensorUpload: React.FC = () => {
   const loadCompetitions = async () => {
     try {
       setCompetitionsLoading(true);
-      const response = await fetch('/api/competitions/', {
-        headers: { Authorization: `Bearer ${token}` }
+      const token = localStorage.getItem('access_token');
+      
+      const response = await fetch('http://localhost:8000/admin/competitions', {
+        headers: { 
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
       });
       
       if (response.ok) {
         const data = await response.json();
         setCompetitions(data);
+      } else {
+        console.error('Failed to load competitions:', response.status);
       }
     } catch (error) {
       console.error('Failed to load competitions:', error);
@@ -61,7 +70,7 @@ export const MultiSensorUpload: React.FC = () => {
       return;
     }
     if (!selectedSensorType) {
-      alert('センサー種別を選択してください');
+      alert('センサータイプを選択してください');
       return;
     }
     if (!dataFiles || dataFiles.length === 0) {
@@ -70,41 +79,40 @@ export const MultiSensorUpload: React.FC = () => {
     }
 
     setIsLoading(true);
+    const uploadResults: UploadResult[] = [];
+
     try {
-      if (dataFiles.length === 1) {
-        // Single file upload
+      for (let i = 0; i < dataFiles.length; i++) {
+        const file = dataFiles[i];
         const formData = new FormData();
-        formData.append('data_file', dataFiles[0]);
+        formData.append('data_file', file);
         formData.append('competition_id', selectedCompetition);
 
-        const response = await fetch(`/api/multi-sensor/upload/${selectedSensorType}`, {
+        const token = localStorage.getItem('access_token');
+        
+        const response = await fetch(`http://localhost:8000/admin/multi-sensor/upload/${selectedSensorType}`, {
           method: 'POST',
-          headers: { Authorization: `Bearer ${token}` },
+          headers: {
+            'Authorization': `Bearer ${token}`
+          },
           body: formData
         });
 
         const result = await response.json();
-        setResults(prev => [...prev, { type: 'sensor', result }]);
-      } else {
-        // Multiple files upload
-        const formData = new FormData();
-        formData.append('sensor_type', selectedSensorType);
-        formData.append('competition_id', selectedCompetition);
-        Array.from(dataFiles).forEach(file => {
-          formData.append('data_files', file);
+        uploadResults.push({
+          filename: file.name,
+          type: 'sensor',
+          status: response.ok ? 'success' : 'error',
+          success: response.ok,
+          message: result.message || 'アップロード完了',
+          total_records: result.total_records || 0,
+          processed_records: result.processed_records || 0
         });
-
-        const response = await fetch('/api/multi-sensor/upload/multiple-sensors', {
-          method: 'POST',
-          headers: { Authorization: `Bearer ${token}` },
-          body: formData
-        });
-
-        const result = await response.json();
-        setResults(prev => [...prev, { type: 'multiple', result }]);
       }
+
+      setResults(prev => [...prev, ...uploadResults]);
     } catch (error) {
-      console.error('Upload error:', error);
+      console.error('Upload failed:', error);
       alert('アップロードに失敗しました');
     } finally {
       setIsLoading(false);
@@ -127,16 +135,30 @@ export const MultiSensorUpload: React.FC = () => {
       formData.append('data_file', wbgtFile);
       formData.append('competition_id', selectedCompetition);
 
-      const response = await fetch('/api/multi-sensor/upload/wbgt', {
+      const token = localStorage.getItem('access_token');
+      
+      const response = await fetch('http://localhost:8000/admin/multi-sensor/upload/wbgt', {
         method: 'POST',
-        headers: { Authorization: `Bearer ${token}` },
+        headers: {
+          'Authorization': `Bearer ${token}`
+        },
         body: formData
       });
 
       const result = await response.json();
-      setResults(prev => [...prev, { type: 'wbgt', result }]);
+      const uploadResult: UploadResult = {
+        filename: wbgtFile.name,
+        type: 'wbgt',
+        status: response.ok ? 'success' : 'error',
+        success: response.ok,
+        message: result.message || 'WBGTアップロード完了',
+        total_records: result.total_records || 0,
+        processed_records: result.processed_records || 0
+      };
+
+      setResults(prev => [...prev, uploadResult]);
     } catch (error) {
-      console.error('WBGT upload error:', error);
+      console.error('WBGT upload failed:', error);
       alert('WBGTアップロードに失敗しました');
     } finally {
       setIsLoading(false);
@@ -159,204 +181,220 @@ export const MultiSensorUpload: React.FC = () => {
       formData.append('mapping_file', mappingFile);
       formData.append('competition_id', selectedCompetition);
 
-      const response = await fetch('/api/multi-sensor/upload/mapping', {
+      const token = localStorage.getItem('access_token');
+      
+      const response = await fetch('http://localhost:8000/admin/multi-sensor/mapping', {
         method: 'POST',
-        headers: { Authorization: `Bearer ${token}` },
+        headers: {
+          'Authorization': `Bearer ${token}`
+        },
         body: formData
       });
 
       const result = await response.json();
-      setResults(prev => [...prev, { type: 'mapping', result }]);
+      const uploadResult: UploadResult = {
+        filename: mappingFile.name,
+        type: 'mapping',
+        status: response.ok ? 'success' : 'error',
+        success: response.ok,
+        message: result.message || 'マッピングアップロード完了',
+        total_records: result.total_records || 0,
+        processed_records: result.processed_records || 0
+      };
+
+      setResults(prev => [...prev, uploadResult]);
     } catch (error) {
-      console.error('Mapping upload error:', error);
+      console.error('Mapping upload failed:', error);
       alert('マッピングアップロードに失敗しました');
     } finally {
       setIsLoading(false);
     }
   };
 
-  const formatDate = (dateStr: string | null) => {
-    if (!dateStr) return '日程未定';
-    return new Date(dateStr).toLocaleDateString('ja-JP');
+  const clearResults = () => {
+    setResults([]);
   };
 
   return (
     <Layout>
-      <div className="max-w-6xl mx-auto p-6 space-y-6">
-        <h1 className="text-3xl font-bold text-gray-900">マルチセンサーデータ管理</h1>
+      <div className="space-y-8">
+        {/* ヘッダー */}
+        <div className="bg-gradient-to-r from-purple-600 to-purple-700 rounded-lg p-8">
+          <h1 className="text-3xl font-bold text-white mb-2">マルチセンサーデータアップロード</h1>
+          <p className="text-purple-100">
+            体表温、コア体温、心拍、WBGT、マッピングデータを一括アップロード
+          </p>
+        </div>
 
-        {/* Competition Selection */}
+        {/* 大会選択 */}
         <Card className="p-6">
-          <h2 className="text-xl font-semibold mb-4">大会選択（必須）</h2>
-          <div className="max-w-md">
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              対象大会 <span className="text-red-500">*</span>
-            </label>
-            {competitionsLoading ? (
-              <div className="flex items-center p-3 border rounded-md">
-                <LoadingSpinner size="sm" />
-                <span className="ml-2">大会一覧を読み込み中...</span>
-              </div>
-            ) : (
-              <select
-                value={selectedCompetition}
-                onChange={(e) => setSelectedCompetition(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-              >
-                <option value="">大会を選択してください</option>
-                {competitions.map(comp => (
-                  <option key={comp.competition_id} value={comp.competition_id}>
-                    {comp.name} ({formatDate(comp.date)})
-                  </option>
-                ))}
-              </select>
-            )}
-          </div>
+          <h2 className="text-xl font-semibold text-gray-900 mb-4">大会選択</h2>
+          {competitionsLoading ? (
+            <div className="flex items-center">
+              <LoadingSpinner size="sm" />
+              <span className="ml-2">大会データを読み込み中...</span>
+            </div>
+          ) : (
+            <select
+              value={selectedCompetition}
+              onChange={(e) => setSelectedCompetition(e.target.value)}
+              className="w-full px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
+            >
+              <option value="">大会を選択してください</option>
+              {competitions.map((comp) => (
+                <option key={comp.competition_id} value={comp.competition_id}>
+                  {comp.name} {comp.date && `(${new Date(comp.date).toLocaleDateString('ja-JP')})`}
+                </option>
+              ))}
+            </select>
+          )}
         </Card>
 
-        {/* Sensor Data Upload */}
+        {/* センサーデータアップロード */}
         <Card className="p-6">
-          <h2 className="text-xl font-semibold mb-4">センサーデータアップロード</h2>
+          <h2 className="text-xl font-semibold text-gray-900 mb-4">センサーデータアップロード</h2>
+          
           <div className="space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  センサー種別
-                </label>
-                <select
-                  value={selectedSensorType}
-                  onChange={(e) => setSelectedSensorType(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                >
-                  <option value="">選択してください</option>
-                  <option value="skin_temperature">体表温度（halshare）</option>
-                  <option value="core_temperature">カプセル体温（e-Celcius）</option>
-                  <option value="heart_rate">心拍数（Garmin）</option>
-                </select>
-              </div>
-              
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  データファイル（複数選択可）
-                </label>
-                <input
-                  type="file"
-                  multiple
-                  accept=".csv"
-                  onChange={(e) => setDataFiles(e.target.files)}
-                  className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-medium file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
-                />
-                {dataFiles && (
-                  <div className="mt-2 text-sm text-gray-600">
-                    選択中: {dataFiles.length}ファイル
-                  </div>
-                )}
-              </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                センサータイプ
+              </label>
+              <select
+                value={selectedSensorType}
+                onChange={(e) => setSelectedSensorType(e.target.value)}
+                className="w-full px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
+              >
+                <option value="">センサータイプを選択</option>
+                <option value="skin-temperature">体表温</option>
+                <option value="core-temperature">コア体温</option>
+                <option value="heart-rate">心拍</option>
+              </select>
             </div>
-            
-            <Button 
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                データファイル (複数選択可能)
+              </label>
+              <input
+                type="file"
+                multiple
+                accept=".csv"
+                onChange={(e) => setDataFiles(e.target.files)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
+              />
+            </div>
+
+            <Button
               onClick={uploadSensorData}
               disabled={isLoading || !selectedCompetition || !selectedSensorType || !dataFiles}
-              className="w-full md:w-auto"
+              className="w-full"
             >
-              {isLoading ? (
-                <>
-                  <LoadingSpinner size="sm" />
-                  <span className="ml-2">アップロード中...</span>
-                </>
-              ) : 'センサーデータをアップロード'}
+              {isLoading ? <LoadingSpinner size="sm" className="mr-2" /> : null}
+              センサーデータアップロード
             </Button>
           </div>
         </Card>
 
-        {/* WBGT Upload */}
+        {/* WBGTデータアップロード */}
         <Card className="p-6">
-          <h2 className="text-xl font-semibold mb-4">WBGT環境データアップロード</h2>
+          <h2 className="text-xl font-semibold text-gray-900 mb-4">WBGT環境データアップロード</h2>
+          
           <div className="space-y-4">
-            <div className="max-w-md">
+            <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
-                WBGTデータファイル（1大会につき1ファイル、上書きされます）
+                WBGTファイル
               </label>
               <input
                 type="file"
                 accept=".csv"
                 onChange={(e) => setWbgtFile(e.target.files?.[0] || null)}
-                className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-medium file:bg-green-50 file:text-green-700 hover:file:bg-green-100"
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
               />
             </div>
-            
-            <Button 
+
+            <Button
               onClick={uploadWBGT}
               disabled={isLoading || !selectedCompetition || !wbgtFile}
-              className="w-full md:w-auto bg-green-600 hover:bg-green-700"
+              className="w-full"
             >
-              {isLoading ? (
-                <>
-                  <LoadingSpinner size="sm" />
-                  <span className="ml-2">アップロード中...</span>
-                </>
-              ) : 'WBGTデータをアップロード'}
+              {isLoading ? <LoadingSpinner size="sm" className="mr-2" /> : null}
+              WBGTデータアップロード
             </Button>
           </div>
         </Card>
 
-        {/* Mapping Upload */}
+        {/* マッピングデータアップロード */}
         <Card className="p-6">
-          <h2 className="text-xl font-semibold mb-4">センサーマッピングデータアップロード</h2>
+          <h2 className="text-xl font-semibold text-gray-900 mb-4">マッピングデータアップロード</h2>
+          
           <div className="space-y-4">
-            <div className="max-w-md">
+            <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
-                マッピングファイル（1大会につき1ファイル、上書きされます）
+                マッピングファイル
               </label>
               <input
                 type="file"
                 accept=".csv"
                 onChange={(e) => setMappingFile(e.target.files?.[0] || null)}
-                className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-medium file:bg-purple-50 file:text-purple-700 hover:file:bg-purple-100"
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
               />
-              <div className="mt-2 text-sm text-gray-500">
-                形式: user_id, sensor1_id, sensor2_id... または ヘッダーなしCSV
-              </div>
             </div>
-            
-            <Button 
+
+            <Button
               onClick={uploadMapping}
               disabled={isLoading || !selectedCompetition || !mappingFile}
-              className="w-full md:w-auto bg-purple-600 hover:bg-purple-700"
+              className="w-full"
             >
-              {isLoading ? (
-                <>
-                  <LoadingSpinner size="sm" />
-                  <span className="ml-2">アップロード中...</span>
-                </>
-              ) : 'マッピングデータをアップロード'}
+              {isLoading ? <LoadingSpinner size="sm" className="mr-2" /> : null}
+              マッピングデータアップロード
             </Button>
           </div>
         </Card>
 
-        {/* Results */}
+        {/* アップロード結果 */}
         {results.length > 0 && (
           <Card className="p-6">
-            <h2 className="text-xl font-semibold mb-4">アップロード結果</h2>
-            <div className="space-y-4">
-              {results.map((item, index) => (
-                <div key={index} className="border rounded-lg p-4">
-                  <div className="flex items-center gap-2 mb-2">
-                    <div className={`w-3 h-3 rounded-full ${item.result.success ? 'bg-green-500' : 'bg-red-500'}`} />
-                    <span className="font-medium">
-                      {item.type === 'sensor' && 'センサーデータアップロード'}
-                      {item.type === 'multiple' && '複数ファイルアップロード'}
-                      {item.type === 'wbgt' && 'WBGTデータアップロード'}
-                      {item.type === 'mapping' && 'マッピングデータアップロード'}
-                    </span>
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-xl font-semibold text-gray-900">アップロード結果</h2>
+              <Button
+                onClick={clearResults}
+                variant="outline"
+                size="sm"
+              >
+                結果をクリア
+              </Button>
+            </div>
+            <div className="space-y-3">
+              {results.map((result, index) => (
+                <div
+                  key={index}
+                  className={`p-4 rounded-lg border-2 ${
+                    result.status === 'success'
+                      ? 'border-green-200 bg-green-50'
+                      : 'border-red-200 bg-red-50'
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex-1">
+                      <h4 className="font-medium text-gray-900 flex items-center gap-2">
+                        {result.filename}
+                        <span className="text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded">
+                          {result.type}
+                        </span>
+                      </h4>
+                      <p className="text-sm text-gray-600 mt-1">{result.message}</p>
+                      {result.processed_records > 0 && (
+                        <p className="text-sm text-gray-600">
+                          処理レコード数: {result.processed_records}/{result.total_records}
+                        </p>
+                      )}
+                    </div>
+                    <div className={`text-sm font-medium ${
+                      result.status === 'success' ? 'text-green-600' : 'text-red-600'
+                    }`}>
+                      {result.status === 'success' ? '✅ 成功' : '❌ 失敗'}
+                    </div>
                   </div>
-                  <p className="text-sm text-gray-600">{item.result.message}</p>
-                  {item.result.processed_records && (
-                    <p className="text-sm text-gray-500">
-                      処理件数: {item.result.processed_records}
-                      {item.result.total_records && `/${item.result.total_records}`}
-                    </p>
-                  )}
                 </div>
               ))}
             </div>

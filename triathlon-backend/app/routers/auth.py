@@ -56,7 +56,6 @@ async def login(
             expires_delta=access_token_expires
         )
         
-        # 最終ログイン時刻更新
         admin.last_login = datetime.utcnow()
         db.commit()
         
@@ -73,7 +72,6 @@ async def login(
             expires_in=ACCESS_TOKEN_EXPIRE_MINUTES * 60
         )
     
-    # 認証失敗
     raise HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Incorrect username or password",
@@ -86,7 +84,6 @@ async def register_user(
     db: Session = Depends(get_db)
 ):
     """ユーザー登録（開発・テスト用）"""
-    # 既存ユーザーチェック
     existing_user = db.query(User).filter(
         (User.user_id == user_data.user_id) | 
         (User.username == user_data.username)
@@ -98,7 +95,6 @@ async def register_user(
             detail="User ID or username already exists"
         )
     
-    # 新規ユーザー作成
     user = User(
         user_id=user_data.user_id,
         username=user_data.username,
@@ -119,7 +115,6 @@ async def register_admin(
     db: Session = Depends(get_db)
 ):
     """管理者登録（開発・テスト用）"""
-    # 既存管理者チェック
     existing_admin = db.query(AdminUser).filter(
         (AdminUser.admin_id == admin_data.admin_id) | 
         (AdminUser.username == admin_data.username)
@@ -131,7 +126,6 @@ async def register_admin(
             detail="Admin ID or username already exists"
         )
     
-    # 新規管理者作成
     admin = AdminUser(
         admin_id=admin_data.admin_id,
         username=admin_data.username,
@@ -161,5 +155,5 @@ async def get_current_user_info(
 
 @router.post("/logout")
 async def logout():
-    """ログアウト（トークン無効化はフロントエンド側で実装）"""
+    """ログアウト"""
     return {"message": "Successfully logged out"}

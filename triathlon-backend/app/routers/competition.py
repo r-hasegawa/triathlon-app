@@ -1,20 +1,14 @@
-"""
-app/routers/competition.py
-
-大会管理APIエンドポイント - 完全新規作成版
-"""
-
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from typing import List, Optional
-from datetime import date, datetime
+from datetime import datetime, date
 from pydantic import BaseModel
 
 from app.database import get_db
-from app.models import Competition, RaceRecord, WBGTData
+from app.models import Competition, RaceRecord, User
 from app.utils.dependencies import get_current_admin, get_current_user
 
-router = APIRouter(prefix="/competitions", tags=["competitions"])
+router = APIRouter()
 
 # === Pydantic スキーマ定義 ===
 
@@ -77,6 +71,8 @@ class RaceRecordResponse(BaseModel):
     class Config:
         from_attributes = True
 
+router = APIRouter()
+
 # === 管理者用エンドポイント ===
 
 @router.post("/", response_model=CompetitionResponse)
@@ -86,32 +82,22 @@ async def create_competition(
     current_admin = Depends(get_current_admin)
 ):
     """新規大会作成"""
-    try:
-        # 同名大会の重複チェック
-        existing = db.query(Competition).filter_by(name=competition.name).first()
-        if existing:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Competition with name '{competition.name}' already exists"
-            )
-        
-        # 新規大会作成
-        db_competition = Competition(**competition.dict())
-        db.add(db_competition)
-        db.commit()
-        db.refresh(db_competition)
-        
-        return CompetitionResponse.from_orm(db_competition)
-        
-    except Exception as e:
-        db.rollback()
+    existing = db.query(Competition).filter_by(name=competition.name).first()
+    if existing:
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to create competition: {str(e)}"
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Competition with name '{competition.name}' already exists"
         )
+    
+    db_competition = Competition(**competition.dict())
+    db.add(db_competition)
+    db.commit()
+    db.refresh(db_competition)
+    
+    return CompetitionResponse.from_orm(db_competition)
 
-@router.get("/", response_model=List[CompetitionResponse])
-async def list_competitions(
+@router.get("/admin", response_model=List[CompetitionResponse])
+async def list_competitions_admin(
     include_inactive: bool = False,
     db: Session = Depends(get_db),
     current_admin = Depends(get_current_admin)
@@ -124,7 +110,6 @@ async def list_competitions(
     
     competitions = query.order_by(Competition.date.desc()).all()
     
-    # 統計情報を追加
     result = []
     for comp in competitions:
         comp_data = CompetitionResponse.from_orm(comp)
@@ -157,21 +142,13 @@ async def update_competition(
             detail="Competition not found"
         )
     
-    # 更新データを適用
     update_data = competition_update.dict(exclude_unset=True)
     for field, value in update_data.items():
         setattr(db_competition, field, value)
     
-    try:
-        db.commit()
-        db.refresh(db_competition)
-        return CompetitionResponse.from_orm(db_competition)
-    except Exception as e:
-        db.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to update competition: {str(e)}"
-        )
+    db.commit()
+    db.refresh(db_competition)
+    return CompetitionResponse.from_orm(db_competition)
 
 @router.delete("/{competition_id}")
 async def delete_competition(
@@ -179,7 +156,7 @@ async def delete_competition(
     db: Session = Depends(get_db),
     current_admin = Depends(get_current_admin)
 ):
-    """大会削除（関連データすべて削除）"""
+    """大会削除"""
     db_competition = db.query(Competition).filter_by(competition_id=competition_id).first()
     if not db_competition:
         raise HTTPException(
@@ -187,19 +164,10 @@ async def delete_competition(
             detail="Competition not found"
         )
     
-    try:
-        # カスケード削除で関連データもすべて削除される
-        db.delete(db_competition)
-        db.commit()
-        
-        return {"message": f"Competition '{db_competition.name}' and all related data deleted successfully"}
-        
-    except Exception as e:
-        db.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to delete competition: {str(e)}"
-        )
+    db.delete(db_competition)
+    db.commit()
+    
+    return {"message": f"Competition '{db_competition.name}' deleted successfully"}
 
 # === 大会記録管理 ===
 
@@ -211,7 +179,6 @@ async def create_race_record(
     current_admin = Depends(get_current_admin)
 ):
     """大会記録作成"""
-    # 大会存在チェック
     competition = db.query(Competition).filter_by(competition_id=competition_id).first()
     if not competition:
         raise HTTPException(
@@ -219,8 +186,6 @@ async def create_race_record(
             detail="Competition not found"
         )
     
-    # ユーザー存在チェック
-    from app.models import User
     user = db.query(User).filter_by(user_id=race_record.user_id).first()
     if not user:
         raise HTTPException(
@@ -228,27 +193,18 @@ async def create_race_record(
             detail="User not found"
         )
     
-    try:
-        db_record = RaceRecord(
-            competition_id=competition_id,
-            **race_record.dict()
-        )
-        
-        # 総合記録を自動計算
-        db_record.calculate_total_times()
-        
-        db.add(db_record)
-        db.commit()
-        db.refresh(db_record)
-        
-        return RaceRecordResponse.from_orm(db_record)
-        
-    except Exception as e:
-        db.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to create race record: {str(e)}"
-        )
+    db_record = RaceRecord(
+        competition_id=competition_id,
+        **race_record.dict()
+    )
+    
+    db_record.calculate_total_times()
+    
+    db.add(db_record)
+    db.commit()
+    db.refresh(db_record)
+    
+    return RaceRecordResponse.from_orm(db_record)
 
 @router.get("/{competition_id}/race-records", response_model=List[RaceRecordResponse])
 async def get_race_records(
@@ -260,15 +216,14 @@ async def get_race_records(
     records = db.query(RaceRecord).filter_by(competition_id=competition_id).all()
     return [RaceRecordResponse.from_orm(record) for record in records]
 
-# === 被験者用エンドポイント ===
+# === 一般ユーザー本人のデータ ===
 
-@router.get("/my-competitions", response_model=List[CompetitionResponse])
+@router.get("/me/competitions", response_model=List[CompetitionResponse])
 async def get_my_competitions(
     db: Session = Depends(get_db),
     current_user = Depends(get_current_user)
 ):
     """自分が参加した大会一覧"""
-    # 自分のレース記録がある大会を取得
     competitions = db.query(Competition).join(RaceRecord).filter(
         RaceRecord.user_id == current_user.user_id,
         Competition.is_active == True
@@ -276,7 +231,20 @@ async def get_my_competitions(
     
     return [CompetitionResponse.from_orm(comp) for comp in competitions]
 
-@router.get("/{competition_id}")
+# === 公共の環境データ ===
+
+@router.get("/public/competitions", response_model=List[CompetitionResponse])
+async def get_public_competitions(
+    db: Session = Depends(get_db)
+):
+    """公開大会一覧（認証不要）"""
+    competitions = db.query(Competition).filter(
+        Competition.is_active == True
+    ).order_by(Competition.date.desc()).all()
+    
+    return [CompetitionResponse.from_orm(comp) for comp in competitions]
+
+@router.get("/public/competitions/{competition_id}", response_model=CompetitionResponse)
 async def get_competition_detail(
     competition_id: str,
     db: Session = Depends(get_db)
@@ -294,21 +262,3 @@ async def get_competition_detail(
         )
     
     return CompetitionResponse.from_orm(competition)
-
-# === 公開エンドポイント ===
-
-@router.get("/public/list", response_model=List[CompetitionResponse])
-async def get_public_competitions(
-    db: Session = Depends(get_db)
-):
-    """公開大会一覧（認証不要）"""
-    competitions = db.query(Competition).filter(
-        Competition.is_active == True
-    ).order_by(Competition.date.desc()).all()
-    
-    result = []
-    for comp in competitions:
-        comp_data = CompetitionResponse.from_orm(comp)
-        result.append(comp_data)
-    
-    return result
