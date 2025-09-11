@@ -7,8 +7,8 @@ import os
 from pathlib import Path
 import uvicorn
 
-# ルーター import
-from app.routers import auth, admin, data
+# ルーター import 🆕 competition 追加
+from app.routers import auth, admin, data, competition
 
 # アップロードディレクトリ作成
 UPLOAD_DIR = Path(os.getenv("UPLOAD_DIR", "./uploads/csv"))
@@ -37,10 +37,11 @@ app.add_middleware(
 if Path("static").exists():
     app.mount("/static", StaticFiles(directory="static"), name="static")
 
-# ルーター登録
+# ルーター登録 🆕 競技管理ルーター追加
 app.include_router(auth.router, prefix="/auth", tags=["Authentication"])
 app.include_router(admin.router, prefix="/admin", tags=["Admin"])
 app.include_router(data.router, prefix="/data", tags=["Data"])
+app.include_router(competition.router, prefix="/api", tags=["Competition"])  # 🆕 追加
 
 # ルートエンドポイント
 @app.get("/")
@@ -81,42 +82,11 @@ async def not_found_handler(request, exc):
     )
 
 @app.exception_handler(500)
-async def internal_error_handler(request, exc):
+async def internal_server_error_handler(request, exc):
     return JSONResponse(
         status_code=500,
         content={"detail": "Internal server error"}
     )
 
-# アプリケーション起動時の処理
-@app.on_event("startup")
-async def startup_event():
-    """アプリケーション起動時の初期化処理"""
-    print("🚀 Starting Triathlon Sensor Data API Server...")
-    print(f"📁 Upload directory: {UPLOAD_DIR}")
-    print(f"🔐 CORS origins: {origins}")
-    
-    # データベーステーブル存在確認
-    try:
-        from app.database import engine
-        from app.models.user import Base as UserBase
-        from app.models.sensor_data import Base as SensorBase
-        UserBase.metadata.create_all(bind=engine)
-        SensorBase.metadata.create_all(bind=engine)
-        print("✅ Database tables verified")
-    except Exception as e:
-        print(f"⚠️  Database warning: {e}")
-
-@app.on_event("shutdown")
-async def shutdown_event():
-    """アプリケーション終了時の処理"""
-    print("🛑 Shutting down Triathlon Sensor Data API Server...")
-
 if __name__ == "__main__":
-    # 開発サーバー起動
-    uvicorn.run(
-        "app.main:app",
-        host="0.0.0.0",
-        port=8000,
-        reload=True,
-        log_level="info"
-    )
+    uvicorn.run(app, host="0.0.0.0", port=8000)

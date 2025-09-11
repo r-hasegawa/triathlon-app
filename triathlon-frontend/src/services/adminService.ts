@@ -95,8 +95,6 @@ export interface DashboardStats {
   avg_records_per_user: number;
 }
 
-
-
 export const adminService = {
   // CSVアップロード
   async uploadCSVFiles(sensorDataFile: File, mappingFile: File): Promise<UploadResponse> {
@@ -115,24 +113,24 @@ export const adminService = {
 
   // 複数CSVアップロード
   async uploadMultipleCSVFiles(sensorDataFiles: File[], mappingFile: File): Promise<MultipleUploadResponse> {
-  const formData = new FormData();
-  
-  // 複数のデータファイルを追加
-  sensorDataFiles.forEach(file => {
-    formData.append('sensor_data_files', file);
-  });
-  
-  // マッピングファイルを追加
-  formData.append('sensor_mapping_file', mappingFile);
+    const formData = new FormData();
+    
+    // 複数のデータファイルを追加
+    sensorDataFiles.forEach(file => {
+      formData.append('sensor_data_files', file);
+    });
+    
+    // マッピングファイルを追加
+    formData.append('sensor_mapping_file', mappingFile);
 
-  const response = await api.post<MultipleUploadResponse>('/admin/upload-multiple-csv', formData, {
-    headers: {
-      'Content-Type': 'multipart/form-data',
-    },
-  });
+    const response = await api.post<MultipleUploadResponse>('/admin/upload-multiple-csv', formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    });
 
-  return response.data;
-},
+    return response.data;
+  },
 
   // アップロード履歴取得
   async getUploadHistory(skip = 0, limit = 50): Promise<UploadHistory[]> {
@@ -193,6 +191,7 @@ export const adminService = {
     const response = await api.get<DashboardStats>('/admin/dashboard-stats');
     return response.data;
   },
+
   /**
    * 特定ユーザーのセンサデータを取得（管理者権限）
    */
@@ -227,11 +226,60 @@ export const adminService = {
     return response.data;
   },
 
+  // === 🆕 大会管理機能 ===
+
   /**
-   * 特定ユーザーの統計情報を取得（管理者権限）
+   * 大会一覧を取得（管理者権限）
    */
-  async getUserStats(userId: string) {
-    const response = await api.get(`/admin/users/${userId}/stats`);
+  async getCompetitions(includeInactive: boolean = false) {
+    const response = await api.get('/api/competitions/', {
+      params: { include_inactive: includeInactive }
+    });
+    return response.data;
+  },
+
+  /**
+   * 新規大会を作成（管理者権限）
+   */
+  async createCompetition(competitionData: {
+    name: string;
+    date?: string | null;
+    location?: string | null;
+    description?: string | null;
+  }) {
+    const response = await api.post('/api/competitions/', competitionData);
+    return response.data;
+  },
+
+  /**
+   * 大会情報を更新（管理者権限）
+   */
+  async updateCompetition(competitionId: string, competitionData: {
+    name?: string;
+    date?: string | null;
+    location?: string | null;
+    description?: string | null;
+    is_active?: boolean;
+  }) {
+    const response = await api.put(`/api/competitions/${competitionId}`, competitionData);
+    return response.data;
+  },
+
+  /**
+   * 大会を削除（管理者権限）
+   */
+  async deleteCompetition(competitionId: string) {
+    const response = await api.delete(`/api/competitions/${competitionId}`);
+    return response.data;
+  },
+
+  /**
+   * 大会の詳細情報を取得
+   */
+  async getCompetitionDetail(competitionId: string) {
+    const response = await api.get(`/api/competitions/${competitionId}`);
     return response.data;
   }
+
+  // ✅ 重複していた getUserStats を削除済み
 };

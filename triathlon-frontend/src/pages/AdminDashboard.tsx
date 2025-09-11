@@ -172,6 +172,19 @@ export const AdminDashboard: React.FC = () => {
           </div>
           
           <div className="card-body">
+            {/* 🆕 大会管理カード - 最初に配置 */}
+            <button
+              onClick={() => navigate('/admin/competitions')}
+              className="admin-action-button"
+            >
+              <span className="admin-action-icon">🏆</span>
+              <div className="admin-action-content">
+                <div className="admin-action-title">大会管理</div>
+                <p className="admin-action-description">トライアスロン大会の作成・管理・データ紐付け</p>
+              </div>
+            </button>
+            
+            {/* 既存のCSVアップロードカード */}
             <button
               onClick={() => navigate('/admin/csv-upload')}
               className="admin-action-button"
@@ -183,6 +196,7 @@ export const AdminDashboard: React.FC = () => {
               </div>
             </button>
             
+            {/* 既存のユーザー管理カード */}
             <button
               onClick={() => navigate('/admin/users')}
               className="admin-action-button"
@@ -194,6 +208,7 @@ export const AdminDashboard: React.FC = () => {
               </div>
             </button>
             
+            {/* 既存のアップロード履歴カード */}
             <button
               onClick={() => navigate('/admin/upload-history')}
               className="admin-action-button"

@@ -5,6 +5,7 @@ import { Login } from '@/pages/Login';
 import { Dashboard } from '@/pages/Dashboard';
 import { DataDetail } from '@/pages/DataDetail';
 import { CSVUpload } from '@/pages/CSVUpload';
+import { CompetitionManagement } from '@/pages/CompetitionManagement';
 import { UploadHistory } from '@/pages/UploadHistory';
 import { UserManagement } from '@/pages/UserManagement';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
@@ -107,6 +108,13 @@ const AppRoutes: React.FC = () => {
               <AdminRoute>
                 <UserManagement />
               </AdminRoute>
+            }
+          />
+
+          <Route 
+            path="/admin/competitions" 
+            element={
+              <CompetitionManagement />
             }
           />
           
