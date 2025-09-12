@@ -162,48 +162,26 @@ class HeartRateData(Base):
 # === WBGT環境データ（実データ対応版） ===
 
 class WBGTData(Base):
-    """WBGT環境データ（実データ対応版）"""
+    """WBGT環境データ"""
     __tablename__ = "wbgt_data"
     
     id = Column(Integer, primary_key=True, index=True)
-    raw_data_id = Column(Integer, ForeignKey("raw_sensor_data.id"), nullable=True)
-    station_id = Column(String(100), nullable=False, index=True)
-    competition_id = Column(String(50), ForeignKey("competitions.competition_id"), nullable=True, index=True)
+    
     timestamp = Column(DateTime, nullable=False, index=True)
+    # WBGT固有データ
+    wbgt_value = Column(Float, nullable=False)
+    air_temperature = Column(Float, nullable=True)
+    humidity = Column(Float, nullable=True)
+    globe_temperature = Column(Float, nullable=True)
     
-    # WBGT固有データ（仕様書対応）
-    wbgt_value = Column(Float, nullable=False)  # 必須
-    air_temperature = Column(Float, nullable=True)  # 気温
-    humidity = Column(Float, nullable=True)  # 相対湿度
-    globe_temperature = Column(Float, nullable=True)  # 🆕 黒球温度
-    
-    # 既存のフィールド（下位互換性維持）
-    wind_speed = Column(Float, nullable=True)
-    solar_radiation = Column(Float, nullable=True)
-    location = Column(String(100), nullable=True)
-    
-    created_at = Column(DateTime, server_default=func.now())
-    
+    # アップロード管理
+    upload_batch_id = Column(String(200), nullable=False, index=True)
+    competition_id = Column(String(50), ForeignKey("competitions.competition_id"), nullable=False, index=True)
+    uploaded_at = Column(DateTime, server_default=func.now())
+
     # リレーション
-    raw_data = relationship("RawSensorData")
     competition = relationship("Competition")
-    
-    def to_dict(self) -> Dict:
-        """辞書形式で返却（API用）"""
-        return {
-            'id': self.id,
-            'station_id': self.station_id,
-            'competition_id': self.competition_id,
-            'timestamp': self.timestamp.isoformat() if self.timestamp else None,
-            'wbgt_value': self.wbgt_value,
-            'air_temperature': self.air_temperature,
-            'humidity': self.humidity,
-            'globe_temperature': self.globe_temperature,
-            'wind_speed': self.wind_speed,
-            'solar_radiation': self.solar_radiation,
-            'location': self.location,
-            'created_at': self.created_at.isoformat() if self.created_at else None
-        }
+
 
 # === アップロードバッチ管理 ===
 class UploadBatch(Base):

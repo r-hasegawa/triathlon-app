@@ -71,18 +71,173 @@ class FlexibleCSVService:
     async def process_wbgt_data(
         self,
         wbgt_file: UploadFile,
-        competition_id: Optional[str],
+        competition_id: str,
         db: Session,
         overwrite: bool = True
     ) -> UploadResponse:
-        """WBGT環境データ処理（実データ対応版 + バッチ管理）
+        """WBGT環境データ処理（計測時刻をtimestampに保存）"""
+        try:
+            # バッチID生成
+            timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
+            batch_id = f"{timestamp_str}_{wbgt_file.filename}"
+            
+            # 上書き処理：既存データ削除
+            if overwrite:
+                deleted_count = db.query(WBGTData).filter_by(competition_id=competition_id).delete()
+                db.commit()
+                print(f"既存WBGTデータ{deleted_count}件を削除しました")
+            
+            # CSV読み込み
+            content = await wbgt_file.read()
+            decoded_content = content.decode('shift_jis')
+            df = pd.read_csv(io.StringIO(decoded_content))
+            
+            # 列マッピング
+            column_mapping = {
+                'date': '日付',
+                'time': '時刻',
+                'wbgt': 'WBGT値',
+                'air_temperature': '気温',
+                'humidity': '相対湿度',
+                'globe_temperature': '黒球温度'
+            }
+            
+            processed = 0
+            errors = []
+            
+            for idx, row in df.iterrows():
+                try:
+                    # 計測時刻を timestamp に
+                    date_str = str(row[column_mapping['date']]).strip()
+                    time_str = str(row[column_mapping['time']]).strip()
+                    dt = datetime.strptime(f"{date_str} {time_str}", '%Y/%m/%d %H:%M:%S')
+                    
+                    wbgt_value = float(row[column_mapping['wbgt']])
+                    air_temp = float(row[column_mapping['air_temperature']])
+                    humidity = float(row[column_mapping['humidity']])
+                    globe_temp = float(row[column_mapping['globe_temperature']])
+                    
+                    wbgt_data = WBGTData(
+                        timestamp=dt,
+                        wbgt_value=wbgt_value,
+                        air_temperature=air_temp,
+                        humidity=humidity,
+                        globe_temperature=globe_temp,
+                        competition_id=competition_id,
+                        upload_batch_id=batch_id
+                    )
+                    db.add(wbgt_data)
+                    processed += 1
+                except Exception as e:
+                    errors.append(f"行{idx+1}: {e}")
+                    continue
+            
+            # UploadBatch登録
+            from app.models.flexible_sensor_data import UploadBatch, UploadStatus, SensorType
+            batch = UploadBatch(
+                batch_id=batch_id,
+                sensor_type=SensorType.WBGT,
+                competition_id=competition_id,
+                file_name=wbgt_file.filename,
+                file_size=len(content),
+                total_records=len(df),
+                success_records=processed,
+                failed_records=len(errors),
+                status=UploadStatus.SUCCESS if not errors else UploadStatus.PARTIAL,
+                uploaded_by="admin",
+                notes=f"エラー{len(errors)}件" if errors else None
+            )
+            db.add(batch)
+            db.commit()
+            
+            return UploadResponse(
+                success=True,
+                message=f"WBGTデータ {processed}件処理しました",
+                total_records=len(df),
+                processed_records=processed,
+                errors=errors[:20]  # 最大20件
+            )
+            
+        except Exception as e:
+            db.rollback()
+            raise HTTPException(status_code=400, detail=f"WBGT処理エラー: {str(e)}")
+
+    def _normalize_wbgt_columns(self, columns: List[str]) -> Dict[str, str]:
+        """WBGT列名を正規化してマッピングを作成（実データ対応）"""
+        columns = [str(col).strip() for col in columns]
+        mapping = {}
         
-        仕様：
-        - 入力：日付、時刻、WBGT値、気温、相対湿度、黒球温度（6列）
-        - 処理：日付と時刻を組み合わせて一つのdatetimeに変換
-        - 保存：datetime、WBGT値、気温、相対湿度、黒球温度の5つの値
-        - バッチ管理：他のセンサーデータと同様のバッチ管理
-        """
+        # 実データの正確な列名でマッピング
+        column_map = {
+            '日付': 'date',
+            '時刻': 'time', 
+            'WBGT値': 'wbgt',
+            '気温': 'air_temperature',
+            '相対湿度': 'humidity',
+            '黒球温度': 'globe_temperature'
+        }
+        
+        # 正確な列名マッチング
+        for col in columns:
+            if col in column_map:
+                mapping[column_map[col]] = col
+        
+        # 最低限WBGT値が必要
+        if 'wbgt' not in mapping:
+            return {}
+        
+        return mapping
+
+    def _combine_date_time(self, row: pd.Series, column_mapping: Dict[str, str]) -> Optional[datetime]:
+        """日付と時刻を結合してdatetimeオブジェクトを作成（実データ対応）"""
+        try:
+            date_col = column_mapping.get('date')  # '日付'
+            time_col = column_mapping.get('time')  # '時刻'
+            
+            if not date_col or not time_col:
+                return None
+                
+            date_str = str(row.get(date_col, '')).strip()  # '2025/07/15'
+            time_str = str(row.get(time_col, '')).strip()  # '17:43:38'
+            
+            if not date_str or not time_str or date_str == 'nan' or time_str == 'nan':
+                return None
+            
+            # 実データフォーマット: '2025/07/15 17:43:38'
+            datetime_str = f"{date_str} {time_str}"
+            
+            try:
+                # 実データの正確なフォーマット
+                return datetime.strptime(datetime_str, '%Y/%m/%d %H:%M:%S')
+            except ValueError:
+                # フォールバック
+                try:
+                    return pd.to_datetime(datetime_str)
+                except:
+                    return None
+            
+        except Exception as e:
+            print(f"日付・時刻結合エラー: {e}")
+            return None
+
+    def _safe_float(self, value) -> Optional[float]:
+        """安全にfloat変換"""
+        if value is None or pd.isna(value):
+            return None
+        
+        try:
+            return float(value)
+        except (ValueError, TypeError):
+            return None
+
+    async def process_wbgt_data(
+        self,
+        wbgt_file: UploadFile,
+        competition_id: str,
+        db: Session,
+        overwrite: bool = True
+    ) -> UploadResponse:
+        """WBGT環境データ処理（実データ対応版＋バッチ管理）"""
         try:
             # バッチID生成
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -164,8 +319,7 @@ class FlexibleCSVService:
                         humidity=humidity,
                         globe_temperature=globe_temp,
                         competition_id=competition_id,
-                        station_id="WBGT_STATION_001",  # デフォルト値
-                        upload_batch_id=batch_id,  # 🆕 バッチID設定
+                        upload_batch_id=batch_id,  # バッチID設定
                         uploaded_at=datetime.now()
                     )
                     
@@ -176,12 +330,12 @@ class FlexibleCSVService:
                     errors.append(f"行{index+1}: {str(e)}")
                     continue
             
-            # 🆕 UploadBatch記録作成
+            # UploadBatch記録作成
             from app.models.flexible_sensor_data import UploadBatch, UploadStatus, SensorType
             
             upload_batch = UploadBatch(
                 batch_id=batch_id,
-                sensor_type=SensorType.WBGT,  # WBGT用のSensorType
+                sensor_type=SensorType.WBGT,
                 competition_id=competition_id,
                 file_name=wbgt_file.filename,
                 file_size=len(content),
@@ -200,185 +354,22 @@ class FlexibleCSVService:
             message = f"WBGTデータを{processed}件処理しました（バッチID: {batch_id}）"
             if errors:
                 message += f"（エラー{len(errors)}件）"
-                print("エラー詳細:", errors[:10])  # 最初の10件のみログ出力
             
             return UploadResponse(
                 success=True,
                 message=message,
                 total_records=len(df),
                 processed_records=processed,
-                errors=errors[:20] if errors else []  # 最大20件のエラーを返却
+                success_records=processed,  # フロントエンド互換性のため
+                failed_records=len(errors),
+                errors=errors[:10] if errors else None  # 最初の10件のみ
             )
             
         except Exception as e:
             db.rollback()
-            raise HTTPException(status_code=400, detail=f"WBGT処理エラー: {str(e)}")
-
-    def _normalize_wbgt_columns(self, columns: List[str]) -> Dict[str, str]:
-        """WBGT列名を正規化してマッピングを作成（実データ対応）"""
-        columns = [str(col).strip() for col in columns]
-        mapping = {}
+            print(f"WBGT処理エラー: {str(e)}")
+            raise HTTPException(status_code=500, detail=f"WBGT処理エラー: {str(e)}")
         
-        # 実データの正確な列名でマッピング
-        column_map = {
-            '日付': 'date',
-            '時刻': 'time', 
-            'WBGT値': 'wbgt',
-            '気温': 'air_temperature',
-            '相対湿度': 'humidity',
-            '黒球温度': 'globe_temperature'
-        }
-        
-        # 正確な列名マッチング
-        for col in columns:
-            if col in column_map:
-                mapping[column_map[col]] = col
-        
-        # 最低限WBGT値が必要
-        if 'wbgt' not in mapping:
-            return {}
-        
-        return mapping
-
-    def _combine_date_time(self, row: pd.Series, column_mapping: Dict[str, str]) -> Optional[datetime]:
-        """日付と時刻を結合してdatetimeオブジェクトを作成（実データ対応）"""
-        try:
-            date_col = column_mapping.get('date')  # '日付'
-            time_col = column_mapping.get('time')  # '時刻'
-            
-            if not date_col or not time_col:
-                return None
-                
-            date_str = str(row.get(date_col, '')).strip()  # '2025/07/15'
-            time_str = str(row.get(time_col, '')).strip()  # '17:43:38'
-            
-            if not date_str or not time_str or date_str == 'nan' or time_str == 'nan':
-                return None
-            
-            # 実データフォーマット: '2025/07/15 17:43:38'
-            datetime_str = f"{date_str} {time_str}"
-            
-            try:
-                # 実データの正確なフォーマット
-                return datetime.strptime(datetime_str, '%Y/%m/%d %H:%M:%S')
-            except ValueError:
-                # フォールバック
-                try:
-                    return pd.to_datetime(datetime_str)
-                except:
-                    return None
-            
-        except Exception as e:
-            print(f"日付・時刻結合エラー: {e}")
-            return None
-
-    def _safe_float(self, value) -> Optional[float]:
-        """安全にfloat変換"""
-        if value is None or pd.isna(value):
-            return None
-        
-        try:
-            return float(value)
-        except (ValueError, TypeError):
-            return None
-
-    async def process_mapping_data(
-        self,
-        mapping_file: UploadFile,
-        competition_id: str,  # 必須
-        db: Session,
-        overwrite: bool = True
-    ) -> MappingResponse:
-        """柔軟なマッピングデータ処理"""
-        try:
-            # 大会存在チェック
-            from app.models import Competition
-            competition = db.query(Competition).filter_by(competition_id=competition_id).first()
-            if not competition:
-                raise HTTPException(status_code=400, detail=f"大会ID '{competition_id}' が見つかりません")
-            
-            if overwrite and competition_id:
-                db.query(FlexibleSensorMapping).filter_by(competition_id=competition_id).delete()
-            
-            content = await mapping_file.read()
-            df = pd.read_csv(io.BytesIO(content))
-            
-            # 必須列チェック
-            if 'user_id' not in df.columns:
-                raise HTTPException(status_code=400, detail="user_id列が必要です")
-            
-            # user_id重複チェック
-            duplicate_users = df[df['user_id'].duplicated()]['user_id'].tolist()
-            if duplicate_users:
-                raise HTTPException(
-                    status_code=400, 
-                    detail=f"user_idに重複があります: {duplicate_users}"
-                )
-            
-            # 認識するセンサー列のみ（固定列名）- 個人データのみ
-            recognized_sensor_columns = {
-                'skin_temp_sensor_id': SensorType.SKIN_TEMPERATURE,
-                'core_temp_sensor_id': SensorType.CORE_TEMPERATURE,
-                'heart_rate_sensor_id': SensorType.HEART_RATE
-                # WBGTは環境データなのでマッピング不要
-            }
-            
-            # 認識する列リスト（user_id + センサー列のみ）
-            recognized_columns = {'user_id'}.union(set(recognized_sensor_columns.keys()))
-            
-            processed = 0
-            skipped = 0
-            errors = []
-            
-            for _, row in df.iterrows():
-                user_id = str(row.get('user_id', '')).strip()
-                
-                if not user_id:
-                    skipped += 1
-                    continue
-                
-                # ユーザー存在チェック
-                from app.models import User
-                user = db.query(User).filter_by(user_id=user_id).first()
-                if not user:
-                    skipped += 1
-                    errors.append(f"未登録ユーザー: {user_id}")
-                    continue
-                
-                # センサーマッピング処理
-                for col_name, sensor_type in recognized_sensor_columns.items():
-                    sensor_id = str(row.get(col_name, '')).strip()
-                    
-                    if sensor_id and sensor_id != 'nan':
-                        # マッピングデータ作成
-                        mapping = FlexibleSensorMapping(
-                            user_id=user_id,
-                            competition_id=competition_id,
-                            sensor_id=sensor_id,
-                            sensor_type=sensor_type,
-                            subject_name=str(row.get('subject_name', '')).strip() or None,
-                            device_type=col_name,
-                            is_active=True
-                        )
-                        db.add(mapping)
-                
-                processed += 1
-            
-            db.commit()
-            
-            return MappingResponse(
-                success=True,
-                message=f"マッピングデータを{processed}件処理しました（スキップ: {skipped}件）",
-                total_records=len(df),
-                processed_records=processed,
-                skipped_records=skipped,
-                errors=errors
-            )
-            
-        except Exception as e:
-            db.rollback()
-            raise HTTPException(status_code=400, detail=f"マッピング処理エラー: {str(e)}")
-
     def get_data_summary(
         self,
         db: Session,

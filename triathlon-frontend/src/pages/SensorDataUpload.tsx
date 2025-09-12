@@ -61,6 +61,11 @@ export const SensorDataUpload: React.FC = () => {
   const [heartRateResults, setHeartRateResults] = useState<UploadResult[]>([]);
   const heartRateInputRef = useRef<HTMLInputElement>(null);
 
+  // 🆕 WBGT アップロード
+  const [wbgtFile, setWbgtFile] = useState<File | null>(null);
+  const [wbgtResult, setWbgtResult] = useState<UploadResult | null>(null);
+  const wbgtInputRef = useRef<HTMLInputElement>(null);
+
   useEffect(() => {
     loadCompetitions();
     loadUploadBatches();
@@ -85,6 +90,13 @@ export const SensorDataUpload: React.FC = () => {
       heartRateInputRef.current.value = '';
     }
     setHeartRateFiles(null);
+  };
+
+  const resetWbgtFile = () => {
+    if (wbgtInputRef.current) {
+      wbgtInputRef.current.value = '';
+    }
+    setWbgtFile(null);
   };
 
   const loadCompetitions = async () => {
@@ -217,6 +229,57 @@ export const SensorDataUpload: React.FC = () => {
     }
   };
 
+  const uploadWbgt = async () => {
+    if (!selectedCompetition || !wbgtFile) return;
+
+    setIsLoading(true);
+    try {
+      const formData = new FormData();
+      formData.append('competition_id', selectedCompetition);
+      formData.append('wbgt_file', wbgtFile);
+      formData.append('overwrite', 'true');
+
+      const token = localStorage.getItem('access_token');
+      const response = await fetch('http://localhost:8000/admin/upload/wbgt', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+        body: formData,
+      });
+
+      const result = await response.json();
+
+      if (response.ok) {
+        setWbgtResult({
+          status: 'success',
+          file: wbgtFile.name,
+          success: result.processed_records || result.success_records,
+          failed: result.failed_records || 0,
+          total: result.total_records,
+          message: result.message
+        });
+        resetWbgtFile();
+        loadUploadBatches();
+      } else {
+        setWbgtResult({
+          status: 'error',
+          file: wbgtFile.name,
+          error: result.detail || 'アップロードに失敗しました'
+        });
+      }
+    } catch (error) {
+      console.error('WBGT upload failed:', error);
+      setWbgtResult({
+        status: 'error',
+        file: wbgtFile.name,
+        error: 'アップロードエラーが発生しました'
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const deleteBatch = async (batchId: string) => {
     if (!confirm('このバッチとすべてのデータを削除しますか？')) return;
 
@@ -253,6 +316,7 @@ export const SensorDataUpload: React.FC = () => {
       case 'skin_temperature': return '体表温';
       case 'core_temperature': return 'カプセル温';
       case 'heart_rate': return '心拍';
+      case 'wbgt': return 'WBGT環境';  // 追加
       default: return type;
     }
   };
@@ -446,6 +510,50 @@ export const SensorDataUpload: React.FC = () => {
                 )}
               </div>
             </Card>
+
+            {/* 4. WBGTデータアップロード */}
+            <Card className="p-6 border-l-4 border-l-orange-500">
+              <h2 className="text-lg font-semibold mb-4">4. WBGTデータ</h2>
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    CSVファイル（1つ）
+                  </label>
+                  <input
+                    ref={wbgtInputRef}
+                    type="file"
+                    accept=".csv"
+                    onChange={(e) => setWbgtFile(e.target.files ? e.target.files[0] : null)}
+                    className="w-full p-2 border border-gray-300 rounded-md"
+                  />
+                  <p className="text-sm text-gray-500 mt-1">
+                    WBGT計測器から出力されたCSVファイルをアップロードしてください
+                  </p>
+                </div>
+                
+                <Button 
+                  onClick={uploadWbgt}
+                  disabled={!wbgtFile || isLoading}
+                  className="w-full"
+                >
+                  {isLoading ? '処理中...' : 'WBGTデータをアップロード'}
+                </Button>
+
+                {wbgtResult && (
+                  <div className={`p-3 rounded border ${wbgtResult.status === 'success' ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}>
+                    <div className="font-medium">{wbgtResult.file}</div>
+                    {wbgtResult.error ? (
+                      <div className="text-red-600 text-sm">{wbgtResult.error}</div>
+                    ) : (
+                      <div className="text-sm">
+                        {wbgtResult.message || `成功: ${wbgtResult.success} / 失敗: ${wbgtResult.failed}`}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </Card>
+
           </>
         )}
 
