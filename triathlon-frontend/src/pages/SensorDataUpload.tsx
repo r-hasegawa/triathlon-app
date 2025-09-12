@@ -1,6 +1,6 @@
 // triathlon-frontend/src/pages/SensorDataUpload.tsx
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -48,20 +48,44 @@ export const SensorDataUpload: React.FC = () => {
   // 体表温アップロード
   const [skinTempFiles, setSkinTempFiles] = useState<FileList | null>(null);
   const [skinTempResults, setSkinTempResults] = useState<UploadResult[]>([]);
+  const skinTempInputRef = useRef<HTMLInputElement>(null);
 
   // カプセル温アップロード
   const [coreTempFiles, setCoreTempFiles] = useState<FileList | null>(null);
   const [coreTempResults, setCoreTempResults] = useState<UploadResult[]>([]);
+  const coreTempInputRef = useRef<HTMLInputElement>(null);
 
   // 心拍アップロード
   const [heartRateFiles, setHeartRateFiles] = useState<FileList | null>(null);
   const [heartRateSensorId, setHeartRateSensorId] = useState('');
   const [heartRateResults, setHeartRateResults] = useState<UploadResult[]>([]);
+  const heartRateInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     loadCompetitions();
     loadUploadBatches();
   }, []);
+
+  const resetSkinTempFiles = () => {
+    if (skinTempInputRef.current) {
+      skinTempInputRef.current.value = '';
+    }
+    setSkinTempFiles(null);
+  };
+
+  const resetCoreTempFiles = () => {
+    if (coreTempInputRef.current) {
+      coreTempInputRef.current.value = '';
+    }
+    setCoreTempFiles(null);
+  };
+
+  const resetHeartRateFiles = () => {
+    if (heartRateInputRef.current) {
+      heartRateInputRef.current.value = '';
+    }
+    setHeartRateFiles(null);
+  };
 
   const loadCompetitions = async () => {
     try {
@@ -119,6 +143,7 @@ export const SensorDataUpload: React.FC = () => {
 
       const data = await response.json();
       setSkinTempResults(data.results || []);
+      resetSkinTempFiles();
       loadUploadBatches();
     } catch (error) {
       console.error('Upload failed:', error);
@@ -150,6 +175,7 @@ export const SensorDataUpload: React.FC = () => {
 
       const data = await response.json();
       setCoreTempResults(data.results || []);
+      resetCoreTempFiles();
       loadUploadBatches();
     } catch (error) {
       console.error('Upload failed:', error);
@@ -182,6 +208,7 @@ export const SensorDataUpload: React.FC = () => {
 
       const data = await response.json();
       setHeartRateResults(data.results || []);
+      resetHeartRateFiles();
       loadUploadBatches();
     } catch (error) {
       console.error('Upload failed:', error);
@@ -268,6 +295,7 @@ export const SensorDataUpload: React.FC = () => {
                     CSVファイル（複数選択可能）
                   </label>
                   <input
+                    ref={skinTempInputRef}
                     type="file"
                     multiple
                     accept=".csv"
@@ -316,6 +344,7 @@ export const SensorDataUpload: React.FC = () => {
                     CSVファイル（複数選択可能）
                   </label>
                   <input
+                    ref={coreTempInputRef}
                     type="file"
                     multiple
                     accept=".csv"
@@ -380,6 +409,7 @@ export const SensorDataUpload: React.FC = () => {
                     TCXファイル（複数選択可能）
                   </label>
                   <input
+                    ref={heartRateInputRef}
                     type="file"
                     multiple
                     accept=".tcx"
