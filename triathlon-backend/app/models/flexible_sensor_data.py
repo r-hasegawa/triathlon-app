@@ -213,41 +213,6 @@ class UploadBatch(Base):
 
 # === センサーマッピング ===
 
-class SensorMapping(Base):
-    """センサーマッピングデータ（実装済みとは別の新形式）"""
-    __tablename__ = "sensor_mappings"
-    
-    id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(String(50), ForeignKey("users.user_id"), nullable=False, index=True)
-    competition_id = Column(String(50), ForeignKey("competitions.competition_id"), nullable=False, index=True)
-    
-    # センサー詳細
-    sensor_id = Column(String(100), nullable=False, index=True)
-    sensor_type = Column(Enum(SensorType), nullable=False, index=True)
-    subject_name = Column(String(255), nullable=True)
-    device_type = Column(String(100), nullable=True)
-    notes = Column(Text, nullable=True)
-    
-    # 適用期間
-    effective_from = Column(DateTime, nullable=True)
-    effective_to = Column(DateTime, nullable=True)
-    is_active = Column(Boolean, default=True)
-    
-    created_at = Column(DateTime, server_default=func.now())
-    updated_at = Column(DateTime, onupdate=func.now())
-    
-    # リレーション
-    user = relationship("User", foreign_keys=[user_id])
-    competition = relationship("Competition")
-    
-    # ユニーク制約
-    __table_args__ = (
-        Index('idx_sensor_mapping_unique', 'sensor_id', 'sensor_type', 'competition_id', unique=True),
-        Index('idx_user_sensor_type', 'user_id', 'sensor_type', 'competition_id'),
-    )
-
-# === 柔軟なセンサーマッピング（既存互換性） ===
-
 class FlexibleSensorMapping(Base):
     """柔軟なセンサーマッピング"""
     __tablename__ = "flexible_sensor_mappings"
@@ -275,9 +240,10 @@ class FlexibleSensorMapping(Base):
     user = relationship("User", foreign_keys=[user_id])
     competition = relationship("Competition")
     
-    # ユニーク制約
+    # ユニーク制約を修正：sensor_id + sensor_type + competition_id の組み合わせで一意
     __table_args__ = (
-        Index('idx_user_competition_mapping', 'user_id', 'competition_id', unique=True),
+        Index('idx_sensor_mapping_unique', 'sensor_id', 'sensor_type', 'competition_id', unique=True),
+        Index('idx_user_sensor_type', 'user_id', 'sensor_type', 'competition_id'),
     )
 
 # === データ統合ビュー（既存互換性のため） ===

@@ -416,13 +416,282 @@ async def upload_wbgt_data(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"WBGTアップロード失敗: {str(e)}")
 
+
+@router.post("/upload/mapping")
+async def upload_mapping_data(
+    mapping_file: UploadFile = File(...),
+    competition_id: str = Form(...),
+    overwrite: bool = Form(True),
+    db: Session = Depends(get_db),
+    current_admin: AdminUser = Depends(get_current_admin)
+):
+    """マッピングデータアップロード"""
+    # ファイル形式チェック
+    if not mapping_file.filename.lower().endswith('.csv'):
+        raise HTTPException(status_code=400, detail="CSVファイルのみアップロード可能です")
+    
+    # 大会存在チェック
+    competition = db.query(Competition).filter_by(competition_id=competition_id).first()
+    if not competition:
+        raise HTTPException(status_code=400, detail=f"大会ID '{competition_id}' が見つかりません")
+    
+    # マッピング処理サービス呼び出し
+    csv_service = FlexibleCSVService()
+    
+    try:
+        # ファイルサイズ取得のため事前読み込み
+        content = await mapping_file.read()
+        file_size = len(content)
+        
+        # ファイルポインタをリセット
+        await mapping_file.seek(0)
+        
+        result = await csv_service.process_mapping_data(
+            mapping_file=mapping_file,
+            competition_id=competition_id,
+            db=db,
+            overwrite=overwrite
+        )
+        
+        # バッチ記録も作成（マッピングデータ用）
+        batch_id = f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{mapping_file.filename}"
+        
+        batch = UploadBatch(
+            batch_id=batch_id,
+            sensor_type=SensorType.OTHER,  # マッピングは特殊なタイプ
+            competition_id=competition_id,
+            file_name=mapping_file.filename,
+            file_size=file_size,
+            total_records=result["total_records"],
+            success_records=result["processed_records"],
+            failed_records=result["skipped_records"],
+            status=UploadStatus.SUCCESS if result["success"] else UploadStatus.PARTIAL,
+            uploaded_by=current_admin.admin_id,
+            notes=f"スキップ: {result['skipped_records']}件" if result["skipped_records"] > 0 else None
+        )
+        db.add(batch)
+        db.commit()
+        
+        # フロントエンド互換性のためのレスポンス形式統一
+        return {
+            "success": result["success"],
+            "message": result["message"],
+            "total_records": result["total_records"],
+            "processed_records": result["processed_records"],
+            "skipped_records": result["skipped_records"],
+            "errors": result.get("errors", []),
+            "batch_id": batch_id
+        }
+    
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"マッピングアップロード失敗: {str(e)}")
+
+@router.get("/mapping/status")
+async def get_mapping_status(
+    competition_id: Optional[str] = Query(None),
+    db: Session = Depends(get_db),
+    current_admin: AdminUser = Depends(get_current_admin)
+):
+    """マッピング状況取得"""
+    
+    query = db.query(FlexibleSensorMapping)
+    if competition_id:
+        query = query.filter_by(competition_id=competition_id)
+    
+    mappings = query.all()
+    
+    # 統計計算
+    total_mappings = len(mappings)
+    active_mappings = len([m for m in mappings if m.is_active])
+    
+    # センサータイプ別統計
+    by_sensor_type = {}
+    for sensor_type in SensorType:
+        if sensor_type == SensorType.WBGT:  # 環境データはマッピング対象外
+            continue
+        count = len([m for m in mappings if m.sensor_type == sensor_type])
+        by_sensor_type[sensor_type.value] = count
+    
+    # ユーザー別マッピング状況
+    user_mapping_status = {}
+    for mapping in mappings:
+        user_id = mapping.user_id
+        if user_id not in user_mapping_status:
+            user_mapping_status[user_id] = {
+                'skin_temperature': False,
+                'core_temperature': False,
+                'heart_rate': False
+            }
+        
+        if mapping.sensor_type in [SensorType.SKIN_TEMPERATURE, SensorType.CORE_TEMPERATURE, SensorType.HEART_RATE]:
+            user_mapping_status[user_id][mapping.sensor_type.value] = True
+    
+    # 完全マッピング済みユーザー数
+    fully_mapped_users = len([
+        user for user, status in user_mapping_status.items()
+        if all(status.values())
+    ])
+    
+    return {
+        "total_mappings": total_mappings,
+        "active_mappings": active_mappings,
+        "mappings_by_sensor_type": by_sensor_type,
+        "total_users_with_mappings": len(user_mapping_status),
+        "fully_mapped_users": fully_mapped_users,
+        "competition_id": competition_id,
+        "user_mapping_details": user_mapping_status
+    }
+
+@router.get("/mapping/unmapped-sensors")
+async def get_unmapped_sensors(
+    competition_id: Optional[str] = Query(None),
+    sensor_type: Optional[SensorType] = Query(None),
+    limit: int = Query(50, le=200),
+    db: Session = Depends(get_db),
+    current_admin: AdminUser = Depends(get_current_admin)
+):
+    """未マッピングセンサー一覧"""
+    
+    unmapped_sensors = []
+    
+    # 各センサーテーブルから未マッピングデータを取得
+    if not sensor_type or sensor_type == SensorType.SKIN_TEMPERATURE:
+        skin_temp_unmapped = db.query(SkinTemperatureData)\
+            .filter(SkinTemperatureData.mapped_user_id.is_(None))
+        
+        if competition_id:
+            skin_temp_unmapped = skin_temp_unmapped.filter_by(competition_id=competition_id)
+        
+        for data in skin_temp_unmapped.limit(limit).all():
+            unmapped_sensors.append({
+                'sensor_id': data.halshare_id,
+                'sensor_type': 'skin_temperature',
+                'competition_id': data.competition_id,
+                'data_count': db.query(SkinTemperatureData)\
+                    .filter_by(halshare_id=data.halshare_id, competition_id=data.competition_id)\
+                    .count(),
+                'last_timestamp': data.datetime.isoformat() if data.datetime else None
+            })
+    
+    if not sensor_type or sensor_type == SensorType.CORE_TEMPERATURE:
+        core_temp_unmapped = db.query(CoreTemperatureData)\
+            .filter(CoreTemperatureData.mapped_user_id.is_(None))
+        
+        if competition_id:
+            core_temp_unmapped = core_temp_unmapped.filter_by(competition_id=competition_id)
+        
+        for data in core_temp_unmapped.limit(limit).all():
+            unmapped_sensors.append({
+                'sensor_id': data.capsule_id,
+                'sensor_type': 'core_temperature',
+                'competition_id': data.competition_id,
+                'data_count': db.query(CoreTemperatureData)\
+                    .filter_by(capsule_id=data.capsule_id, competition_id=data.competition_id)\
+                    .count(),
+                'last_timestamp': data.datetime.isoformat() if data.datetime else None
+            })
+    
+    if not sensor_type or sensor_type == SensorType.HEART_RATE:
+        heart_rate_unmapped = db.query(HeartRateData)\
+            .filter(HeartRateData.mapped_user_id.is_(None))
+        
+        if competition_id:
+            heart_rate_unmapped = heart_rate_unmapped.filter_by(competition_id=competition_id)
+        
+        for data in heart_rate_unmapped.limit(limit).all():
+            unmapped_sensors.append({
+                'sensor_id': data.sensor_id,
+                'sensor_type': 'heart_rate',
+                'competition_id': data.competition_id,
+                'data_count': db.query(HeartRateData)\
+                    .filter_by(sensor_id=data.sensor_id, competition_id=data.competition_id)\
+                    .count(),
+                'last_timestamp': data.time.isoformat() if data.time else None
+            })
+    
+    return {
+        "unmapped_sensors": unmapped_sensors[:limit],
+        "total_shown": len(unmapped_sensors[:limit]),
+        "competition_id": competition_id,
+        "sensor_type_filter": sensor_type.value if sensor_type else None
+    }
+
+@router.post("/mapping/apply")
+async def apply_mapping(
+    competition_id: str = Form(...),
+    db: Session = Depends(get_db),
+    current_admin: AdminUser = Depends(get_current_admin)
+):
+    """マッピングを実際のセンサーデータに適用"""
+    
+    # 該当大会のマッピングを取得
+    mappings = db.query(FlexibleSensorMapping)\
+        .filter_by(competition_id=competition_id, is_active=True)\
+        .all()
+    
+    if not mappings:
+        raise HTTPException(status_code=404, detail="該当大会にアクティブなマッピングがありません")
+    
+    applied_count = 0
+    errors = []
+    
+    try:
+        for mapping in mappings:
+            user_id = mapping.user_id
+            sensor_id = mapping.sensor_id
+            sensor_type = mapping.sensor_type
+            
+            # センサータイプに応じてデータを更新
+            if sensor_type == SensorType.SKIN_TEMPERATURE:
+                updated = db.query(SkinTemperatureData)\
+                    .filter_by(halshare_id=sensor_id, competition_id=competition_id)\
+                    .update({
+                        'mapped_user_id': user_id,
+                        'mapped_at': datetime.now()
+                    })
+                applied_count += updated
+                
+            elif sensor_type == SensorType.CORE_TEMPERATURE:
+                updated = db.query(CoreTemperatureData)\
+                    .filter_by(capsule_id=sensor_id, competition_id=competition_id)\
+                    .update({
+                        'mapped_user_id': user_id,
+                        'mapped_at': datetime.now()
+                    })
+                applied_count += updated
+                
+            elif sensor_type == SensorType.HEART_RATE:
+                updated = db.query(HeartRateData)\
+                    .filter_by(sensor_id=sensor_id, competition_id=competition_id)\
+                    .update({
+                        'mapped_user_id': user_id,
+                        'mapped_at': datetime.now()
+                    })
+                applied_count += updated
+        
+        db.commit()
+        
+        return {
+            "success": True,
+            "message": f"マッピングを{applied_count}件のセンサーデータに適用しました",
+            "applied_count": applied_count,
+            "mapping_count": len(mappings),
+            "competition_id": competition_id,
+            "errors": errors
+        }
+        
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"マッピング適用エラー: {str(e)}")
+
 @router.delete("/upload/batch/{batch_id}")
 async def delete_upload_batch(
     batch_id: str,
     db: Session = Depends(get_db),
     current_admin = Depends(get_current_admin)
 ):
-    """アップロードバッチ削除（WBGT対応版）"""
+    """アップロードバッチ削除（マッピング対応版）"""
     
     batch = db.query(UploadBatch).filter_by(batch_id=batch_id).first()
     if not batch:
@@ -437,8 +706,11 @@ async def delete_upload_batch(
             deleted_count = db.query(CoreTemperatureData).filter_by(upload_batch_id=batch_id).delete()
         elif batch.sensor_type == SensorType.HEART_RATE:
             deleted_count = db.query(HeartRateData).filter_by(upload_batch_id=batch_id).delete()
-        elif batch.sensor_type == SensorType.WBGT:  # WBGT追加
+        elif batch.sensor_type == SensorType.WBGT:
             deleted_count = db.query(WBGTData).filter_by(upload_batch_id=batch_id).delete()
+        elif batch.sensor_type == SensorType.OTHER:  # マッピングデータ
+            # マッピングはbatch_idではなくcompetition_idで削除
+            deleted_count = db.query(FlexibleSensorMapping).filter_by(competition_id=batch.competition_id).delete()
         
         db.delete(batch)
         db.commit()

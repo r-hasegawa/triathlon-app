@@ -2,7 +2,7 @@ from abc import ABC, abstractmethod
 from typing import List, Optional
 from datetime import datetime
 from sqlalchemy.orm import Session
-from app.models.sensor_data import SensorData, SensorMapping
+from app.models.sensor_data import SensorData
 
 class SensorRepositoryInterface(ABC):
     """センサーデータリポジトリインターフェース"""

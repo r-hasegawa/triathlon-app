@@ -16,7 +16,7 @@ from app.models.flexible_sensor_data import (
     # 既存のモデルのみ使用（新しいテーブルも含まれている）
     RawSensorData, FlexibleSensorMapping,
     SkinTemperatureData, CoreTemperatureData, 
-    HeartRateData, WBGTData, UploadBatch, SensorMapping
+    HeartRateData, WBGTData, UploadBatch
 )
 from app.utils.security import get_password_hash
 

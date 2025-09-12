@@ -22,7 +22,6 @@ from .flexible_sensor_data import (
     CoreTemperatureData, 
     HeartRateData,
     UploadBatch,
-    SensorMapping,
     
     # Environment data
     WBGTData,
@@ -50,7 +49,6 @@ __all__ = [
     "CoreTemperatureData",
     "HeartRateData",
     "UploadBatch",
-    "SensorMapping",
     
     # Environment & View
     "WBGTData",

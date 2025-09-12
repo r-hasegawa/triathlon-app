@@ -230,6 +230,198 @@ class FlexibleCSVService:
         except (ValueError, TypeError):
             return None
 
+    async def process_mapping_data(
+        self,
+        mapping_file: UploadFile,
+        competition_id: str,
+        db: Session,
+        overwrite: bool = True
+    ) -> Dict[str, Any]:
+        """マッピングデータ処理（柔軟な列構成対応）"""
+        df = None  # 変数を最初に初期化
+        
+        try:
+            # 大会存在チェック
+            from app.models.competition import Competition
+            competition = db.query(Competition).filter_by(competition_id=competition_id).first()
+            if not competition:
+                raise HTTPException(status_code=400, detail=f"大会ID '{competition_id}' が見つかりません")
+            
+            # 上書き処理：既存マッピングデータを削除
+            if overwrite and competition_id:
+                deleted_count = db.query(FlexibleSensorMapping).filter_by(competition_id=competition_id).delete()
+                db.commit()
+                print(f"既存マッピングデータ{deleted_count}件を削除しました")
+            
+            # CSVファイル読み込み
+            try:
+                # ファイルポインタを先頭に戻す
+                await mapping_file.seek(0)
+                content = await mapping_file.read()
+            except Exception:
+                # seek失敗時は既存contentを使用
+                content = await mapping_file.read()
+            
+            if not content:
+                raise HTTPException(status_code=400, detail="CSVファイルが空です")
+            
+            # エンコーディング自動検出
+            decoded_content = None
+            detected_encoding = None
+            
+            for encoding in ['utf-8', 'shift_jis', 'cp932', 'iso-8859-1']:
+                try:
+                    decoded_content = content.decode(encoding)
+                    detected_encoding = encoding
+                    break
+                except UnicodeDecodeError:
+                    continue
+            
+            if decoded_content is None:
+                raise HTTPException(status_code=400, detail="CSVファイルの文字コードを認識できませんでした")
+            
+            print(f"マッピングデータ使用エンコーディング: {detected_encoding}")
+            
+            # CSVをDataFrameに読み込み
+            try:
+                df = pd.read_csv(io.StringIO(decoded_content))
+            except Exception as e:
+                raise HTTPException(status_code=400, detail=f"CSV読み込みエラー: {str(e)}")
+            
+            if df is None or df.empty:
+                raise HTTPException(status_code=400, detail="CSVファイルにデータがありません")
+            
+            print(f"マッピングデータ読み込み完了 - 行数: {len(df)}, 列数: {len(df.columns)}")
+            print(f"列名: {list(df.columns)}")
+            
+            # 列名の空白除去
+            df.columns = df.columns.str.strip()
+            
+            # 必須列チェック
+            if 'user_id' not in df.columns:
+                raise HTTPException(status_code=400, detail="user_id列が必要です")
+            
+            # user_id重複チェック
+            duplicate_users = df[df['user_id'].duplicated()]['user_id'].tolist()
+            if duplicate_users:
+                raise HTTPException(
+                    status_code=400, 
+                    detail=f"user_idに重複があります: {duplicate_users}"
+                )
+            
+            # 認識するセンサー列（柔軟対応）
+            recognized_sensor_columns = {
+                'skin_temp_sensor_id': SensorType.SKIN_TEMPERATURE,
+                'core_temp_sensor_id': SensorType.CORE_TEMPERATURE,
+                'heart_rate_sensor_id': SensorType.HEART_RATE,
+                'skin_temperature_sensor_id': SensorType.SKIN_TEMPERATURE,  # 別名対応
+                'core_temperature_sensor_id': SensorType.CORE_TEMPERATURE,  # 別名対応
+                'heart_rate_id': SensorType.HEART_RATE,  # 別名対応
+            }
+            
+            # デバッグ情報
+            print(f"認識可能な列: {list(recognized_sensor_columns.keys())}")
+            available_sensor_columns = [col for col in df.columns if col in recognized_sensor_columns]
+            print(f"CSVに存在する認識可能な列: {available_sensor_columns}")
+            
+            if not available_sensor_columns:
+                raise HTTPException(
+                    status_code=400, 
+                    detail=f"認識可能なセンサー列がありません。利用可能な列: {list(df.columns)}"
+                )
+            
+            processed = 0
+            skipped = 0
+            errors = []
+            
+            for index, row in df.iterrows():
+                user_id = str(row.get('user_id', '')).strip()
+                
+                print(f"処理中 行{index+1}: user_id='{user_id}'")
+                
+                if not user_id or user_id == 'nan':
+                    skipped += 1
+                    errors.append(f"行{index+1}: user_idが空")
+                    continue
+                
+                # ユーザー存在チェック
+                from app.models.user import User
+                user = db.query(User).filter_by(user_id=user_id).first()
+                if not user:
+                    skipped += 1
+                    errors.append(f"行{index+1}: 未登録ユーザー '{user_id}'")
+                    print(f"ユーザー '{user_id}' が見つかりません")
+                    continue
+                
+                print(f"ユーザー '{user_id}' 存在確認")
+                
+                # 各センサーのマッピング処理
+                user_mappings_created = 0
+                for col_name, sensor_type in recognized_sensor_columns.items():
+                    if col_name in df.columns:
+                        sensor_id = str(row.get(col_name, '')).strip()
+                        print(f"列 '{col_name}': sensor_id='{sensor_id}'")
+                        
+                        if sensor_id and sensor_id != 'nan' and sensor_id != '':
+                            try:
+                                # マッピングデータ作成
+                                mapping = FlexibleSensorMapping(
+                                    user_id=user_id,
+                                    competition_id=competition_id,
+                                    sensor_id=sensor_id,
+                                    sensor_type=sensor_type,
+                                    subject_name=str(row.get('subject_name', '')).strip() or None,
+                                    device_type=col_name,
+                                    is_active=True,
+                                    created_at=datetime.now()
+                                )
+                                db.add(mapping)
+                                user_mappings_created += 1
+                                print(f"マッピング作成: {user_id} -> {sensor_id} ({sensor_type.value})")
+                                
+                            except Exception as e:
+                                errors.append(f"行{index+1}, 列{col_name}: マッピング作成エラー - {str(e)}")
+                                print(f"マッピング作成エラー: {str(e)}")
+                    else:
+                        print(f"列 '{col_name}' はCSVに存在しません")
+                
+                print(f"ユーザー '{user_id}' で作成されたマッピング数: {user_mappings_created}")
+                
+                if user_mappings_created > 0:
+                    processed += 1
+                else:
+                    skipped += 1
+                    errors.append(f"行{index+1}: ユーザー '{user_id}' に有効なセンサーマッピングなし")
+            
+            db.commit()
+            
+            # 結果メッセージ作成
+            message = f"マッピングデータを{processed}件のユーザーに対して処理しました"
+            if skipped > 0:
+                message += f"（スキップ: {skipped}件）"
+            
+            return {
+                "success": True,
+                "message": message,
+                "total_records": len(df),
+                "processed_records": processed,
+                "skipped_records": skipped,
+                "errors": errors[:10] if errors else []  # 最初の10件のみ
+            }
+            
+        except HTTPException:
+            # HTTPExceptionは再発生させる
+            raise
+        except Exception as e:
+            db.rollback()
+            error_message = f"マッピング処理エラー: {str(e)}"
+            print(error_message)
+            
+            # dfが定義されていない場合のフォールバック
+            total_records = len(df) if df is not None else 0
+            
+            raise HTTPException(status_code=500, detail=error_message)
+
     async def process_wbgt_data(
         self,
         wbgt_file: UploadFile,
@@ -369,7 +561,7 @@ class FlexibleCSVService:
             db.rollback()
             print(f"WBGT処理エラー: {str(e)}")
             raise HTTPException(status_code=500, detail=f"WBGT処理エラー: {str(e)}")
-        
+
     def get_data_summary(
         self,
         db: Session,
