@@ -17,8 +17,10 @@ from app.models.user import User, AdminUser
 from app.models.competition import Competition
 from app.models.flexible_sensor_data import *
 from app.schemas.user import UserCreate, UserUpdate, UserResponse, AdminResponse
+from app.schemas.sensor_data import UploadResponse, MappingResponse, DataSummaryResponse
 from app.utils.dependencies import get_current_admin
 from app.utils.security import get_password_hash
+from app.services.flexible_csv_service import FlexibleCSVService
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -610,6 +612,128 @@ async def delete_competition(
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Delete failed: {str(e)}")
+
+# === WBGT環境データ ===
+
+@router.post("/wbgt/upload", response_model=UploadResponse)
+async def upload_wbgt_data(
+    wbgt_file: UploadFile = File(...),
+    competition_id: str = Form(...),
+    overwrite: bool = Form(True),
+    db: Session = Depends(get_db),
+    current_admin: AdminUser = Depends(get_current_admin)
+):
+    """
+    WBGT環境データアップロード（実データ対応版）
+    
+    仕様:
+    - 入力: 日付、時刻、WBGT値、気温、相対湿度、黒球温度の6列CSV
+    - 処理: 日付と時刻を組み合わせてdatetimeに変換
+    - 保存: datetime、WBGT値、気温、相対湿度、黒球温度の5項目
+    - エンコーディング自動検出（Shift_JIS優先、UTF-8, CP932, ISO-8859-1）
+    - 文字化けした列名にも対応
+    """
+    # ファイル形式チェック
+    if not wbgt_file.filename.lower().endswith('.csv'):
+        raise HTTPException(status_code=400, detail="CSVファイルのみアップロード可能です")
+    
+    # 大会存在チェック
+    competition = db.query(Competition).filter_by(competition_id=competition_id).first()
+    if not competition:
+        raise HTTPException(status_code=400, detail=f"大会ID '{competition_id}' が見つかりません")
+    
+    # WBGT処理サービス呼び出し
+    csv_service = FlexibleCSVService()
+    
+    try:
+        result = await csv_service.process_wbgt_data(
+            wbgt_file=wbgt_file,
+            competition_id=competition_id,
+            db=db,
+            overwrite=overwrite
+        )
+        return result
+    
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"WBGTアップロード失敗: {str(e)}")
+
+@router.get("/wbgt/data", response_model=List[Dict])
+async def get_wbgt_data(
+    competition_id: Optional[str] = Query(None),
+    start_time: Optional[datetime] = Query(None),
+    end_time: Optional[datetime] = Query(None),
+    db: Session = Depends(get_db),
+    current_admin: AdminUser = Depends(get_current_admin)
+):
+    """WBGT環境データ取得"""
+    
+    query = db.query(WBGTData)
+    
+    # 大会フィルタ
+    if competition_id:
+        query = query.filter_by(competition_id=competition_id)
+    
+    # 時間範囲フィルタ
+    if start_time:
+        query = query.filter(WBGTData.timestamp >= start_time)
+    if end_time:
+        query = query.filter(WBGTData.timestamp <= end_time)
+    
+    # 時系列順にソート
+    wbgt_records = query.order_by(WBGTData.timestamp).all()
+    
+    return [record.to_dict() for record in wbgt_records]
+
+@router.get("/wbgt/summary", response_model=Dict)
+async def get_wbgt_summary(
+    competition_id: Optional[str] = Query(None),
+    db: Session = Depends(get_db),
+    current_admin: AdminUser = Depends(get_current_admin)
+):
+    """WBGT統計情報取得"""
+    
+    query = db.query(WBGTData)
+    if competition_id:
+        query = query.filter_by(competition_id=competition_id)
+    
+    records = query.all()
+    
+    if not records:
+        return {
+            "total_records": 0,
+            "date_range": None,
+            "wbgt_range": None,
+            "temperature_range": None,
+            "humidity_range": None
+        }
+    
+    wbgt_values = [r.wbgt_value for r in records if r.wbgt_value is not None]
+    air_temps = [r.air_temperature for r in records if r.air_temperature is not None]
+    humidities = [r.humidity for r in records if r.humidity is not None]
+    timestamps = [r.timestamp for r in records if r.timestamp is not None]
+    
+    return {
+        "total_records": len(records),
+        "date_range": {
+            "start": min(timestamps).isoformat() if timestamps else None,
+            "end": max(timestamps).isoformat() if timestamps else None
+        },
+        "wbgt_range": {
+            "min": min(wbgt_values) if wbgt_values else None,
+            "max": max(wbgt_values) if wbgt_values else None,
+            "avg": sum(wbgt_values) / len(wbgt_values) if wbgt_values else None
+        },
+        "temperature_range": {
+            "min": min(air_temps) if air_temps else None,
+            "max": max(air_temps) if air_temps else None,
+            "avg": sum(air_temps) / len(air_temps) if air_temps else None
+        },
+        "humidity_range": {
+            "min": min(humidities) if humidities else None,
+            "max": max(humidities) if humidities else None,
+            "avg": sum(humidities) / len(humidities) if humidities else None
+        }
+    }
 
 @router.get("/stats")
 async def get_admin_stats(

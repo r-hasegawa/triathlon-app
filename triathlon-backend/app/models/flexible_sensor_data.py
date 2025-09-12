@@ -1,7 +1,7 @@
 """
 app/models/flexible_sensor_data.py
 
-実際のデータ形式に対応した修正版
+実際のデータ形式に対応した修正版（WBGT実データ対応）
 """
 
 from sqlalchemy import Column, Integer, String, Float, DateTime, Text, ForeignKey, Index, Boolean, func, Enum
@@ -9,6 +9,7 @@ from sqlalchemy.orm import relationship
 from app.database import Base
 import enum
 import json
+from typing import Dict, Optional
 
 class SensorDataStatus(str, enum.Enum):
     """センサーデータの状態"""
@@ -75,7 +76,7 @@ class RawSensorData(Base):
         """Python辞書からデータ値を設定"""
         self.data_values = json.dumps(data_dict)
 
-# === 🆕 実際のデータ形式に対応した専用テーブル ===
+# === 実際のデータ形式に対応した専用テーブル ===
 
 class SkinTemperatureData(Base):
     """体表温データ（halshare）- 実データ形式対応"""
@@ -158,71 +159,10 @@ class HeartRateData(Base):
     user = relationship("User", foreign_keys=[mapped_user_id])
     competition = relationship("Competition")
 
-# === 🆕 アップロードバッチ管理 ===
-class UploadBatch(Base):
-    """アップロードバッチ管理"""
-    __tablename__ = "upload_batches"
-    
-    id = Column(Integer, primary_key=True, index=True)
-    batch_id = Column(String(200), unique=True, nullable=False, index=True)  # {日時}_{ファイル名}
-    
-    # バッチ情報
-    sensor_type = Column(Enum(SensorType), nullable=False)
-    file_name = Column(String(200), nullable=False)
-    file_size = Column(Integer, nullable=True)
-    
-    # 処理結果
-    total_records = Column(Integer, nullable=False, default=0)
-    success_records = Column(Integer, nullable=False, default=0)
-    failed_records = Column(Integer, nullable=False, default=0)
-    status = Column(Enum(UploadStatus), nullable=False, default=UploadStatus.SUCCESS)
-    
-    # メタデータ
-    competition_id = Column(String(50), ForeignKey("competitions.competition_id"), nullable=False, index=True)
-    uploaded_by = Column(String(50), nullable=False)  # 管理者ID
-    uploaded_at = Column(DateTime, server_default=func.now())
-    
-    # エラー情報
-    error_message = Column(Text, nullable=True)
-    processing_notes = Column(Text, nullable=True)
-    
-    # リレーション
-    competition = relationship("Competition")
-
-# === 🆕 センサーマッピング（マッピングデータ用） ===
-class SensorMapping(Base):
-    """センサーマッピング"""
-    __tablename__ = "sensor_mappings"
-    
-    id = Column(Integer, primary_key=True, index=True)
-    
-    # マッピング対象
-    user_id = Column(String(50), ForeignKey("users.user_id"), nullable=False, index=True)
-    competition_id = Column(String(50), ForeignKey("competitions.competition_id"), nullable=False, index=True)
-    
-    # センサーID
-    skin_temp_sensor_id = Column(String(100), nullable=True)     # 体表温センサID
-    core_temp_sensor_id = Column(String(100), nullable=True)     # カプセル体温センサID  
-    heart_rate_sensor_id = Column(String(100), nullable=True)    # 心拍センサID
-    race_record_id = Column(String(100), nullable=True)          # 大会記録ID（ゼッケン番号）
-    
-    # メタデータ
-    uploaded_at = Column(DateTime, server_default=func.now())
-    upload_batch_id = Column(String(200), nullable=False, index=True)
-    
-    # リレーション
-    user = relationship("User", foreign_keys=[user_id])
-    competition = relationship("Competition")
-    
-    # ユニーク制約
-    __table_args__ = (
-        Index('idx_user_competition_mapping', 'user_id', 'competition_id', unique=True),
-    )
-
-# === WBGT環境データ（既存のまま） ===
+# === WBGT環境データ（実データ対応版） ===
 
 class WBGTData(Base):
-    """WBGT環境データ"""
+    """WBGT環境データ（実データ対応版）"""
     __tablename__ = "wbgt_data"
     
     id = Column(Integer, primary_key=True, index=True)
@@ -231,10 +171,13 @@ class WBGTData(Base):
     competition_id = Column(String(50), ForeignKey("competitions.competition_id"), nullable=True, index=True)
     timestamp = Column(DateTime, nullable=False, index=True)
     
-    # WBGT固有データ
-    wbgt_value = Column(Float, nullable=False)
-    air_temperature = Column(Float, nullable=True)
-    humidity = Column(Float, nullable=True)
+    # WBGT固有データ（仕様書対応）
+    wbgt_value = Column(Float, nullable=False)  # 必須
+    air_temperature = Column(Float, nullable=True)  # 気温
+    humidity = Column(Float, nullable=True)  # 相対湿度
+    globe_temperature = Column(Float, nullable=True)  # 🆕 黒球温度
+    
+    # 既存のフィールド（下位互換性維持）
     wind_speed = Column(Float, nullable=True)
     solar_radiation = Column(Float, nullable=True)
     location = Column(String(100), nullable=True)
@@ -244,8 +187,88 @@ class WBGTData(Base):
     # リレーション
     raw_data = relationship("RawSensorData")
     competition = relationship("Competition")
+    
+    def to_dict(self) -> Dict:
+        """辞書形式で返却（API用）"""
+        return {
+            'id': self.id,
+            'station_id': self.station_id,
+            'competition_id': self.competition_id,
+            'timestamp': self.timestamp.isoformat() if self.timestamp else None,
+            'wbgt_value': self.wbgt_value,
+            'air_temperature': self.air_temperature,
+            'humidity': self.humidity,
+            'globe_temperature': self.globe_temperature,
+            'wind_speed': self.wind_speed,
+            'solar_radiation': self.solar_radiation,
+            'location': self.location,
+            'created_at': self.created_at.isoformat() if self.created_at else None
+        }
 
-# === 柔軟なセンサーマッピング（既存のまま） ===
+# === アップロードバッチ管理 ===
+class UploadBatch(Base):
+    """アップロードバッチ管理"""
+    __tablename__ = "upload_batches"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    batch_id = Column(String(200), unique=True, nullable=False, index=True)  # {日時}_{ファイル名}
+    sensor_type = Column(Enum(SensorType), nullable=False, index=True)
+    competition_id = Column(String(50), ForeignKey("competitions.competition_id"), nullable=False, index=True)
+    
+    # ファイル情報
+    file_name = Column(String(255), nullable=False)
+    file_size = Column(Integer, nullable=True)
+    
+    # 処理結果
+    total_records = Column(Integer, nullable=False)
+    success_records = Column(Integer, nullable=False)
+    failed_records = Column(Integer, nullable=False)
+    status = Column(Enum(UploadStatus), nullable=False)
+    
+    # メタデータ
+    uploaded_by = Column(String(100), nullable=True)
+    uploaded_at = Column(DateTime, server_default=func.now())
+    notes = Column(Text, nullable=True)
+    
+    # リレーション
+    competition = relationship("Competition")
+
+# === センサーマッピング ===
+
+class SensorMapping(Base):
+    """センサーマッピングデータ（実装済みとは別の新形式）"""
+    __tablename__ = "sensor_mappings"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(String(50), ForeignKey("users.user_id"), nullable=False, index=True)
+    competition_id = Column(String(50), ForeignKey("competitions.competition_id"), nullable=False, index=True)
+    
+    # センサー詳細
+    sensor_id = Column(String(100), nullable=False, index=True)
+    sensor_type = Column(Enum(SensorType), nullable=False, index=True)
+    subject_name = Column(String(255), nullable=True)
+    device_type = Column(String(100), nullable=True)
+    notes = Column(Text, nullable=True)
+    
+    # 適用期間
+    effective_from = Column(DateTime, nullable=True)
+    effective_to = Column(DateTime, nullable=True)
+    is_active = Column(Boolean, default=True)
+    
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, onupdate=func.now())
+    
+    # リレーション
+    user = relationship("User", foreign_keys=[user_id])
+    competition = relationship("Competition")
+    
+    # ユニーク制約
+    __table_args__ = (
+        Index('idx_sensor_mapping_unique', 'sensor_id', 'sensor_type', 'competition_id', unique=True),
+        Index('idx_user_sensor_type', 'user_id', 'sensor_type', 'competition_id'),
+    )
+
+# === 柔軟なセンサーマッピング（既存互換性） ===
 
 class FlexibleSensorMapping(Base):
     """柔軟なセンサーマッピング"""
@@ -276,8 +299,7 @@ class FlexibleSensorMapping(Base):
     
     # ユニーク制約
     __table_args__ = (
-        Index('idx_sensor_mapping_unique', 'sensor_id', 'sensor_type', 'competition_id', unique=True),
-        Index('idx_user_sensor_type', 'user_id', 'sensor_type', 'competition_id'),
+        Index('idx_user_competition_mapping', 'user_id', 'competition_id', unique=True),
     )
 
 # === データ統合ビュー（既存互換性のため） ===
