@@ -81,129 +81,166 @@ export const AdminDashboard: React.FC = () => {
   return (
     <Layout>
       <div className="space-y-8">
-        <div className="bg-gradient-to-r from-purple-600 to-purple-700 rounded-lg p-8">
-          <h1 className="text-3xl font-bold text-white mb-2">管理者ダッシュボード</h1>
-          <p className="text-purple-100">実データ形式対応システム v3.0</p>
+        {/* ヘッダー */}
+        <div className="bg-gradient-to-r from-blue-600 to-blue-700 rounded-lg p-8">
+          <h1 className="text-3xl font-bold text-white mb-2">
+            管理者ダッシュボード
+          </h1>
+          <p className="text-blue-100">
+            システム全体の統計情報と管理機能
+          </p>
         </div>
 
+        {/* システム統計 */}
         {stats && (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-            <Card className="p-6">
-              <div className="text-center">
-                <p className="text-sm font-medium text-gray-600">総ユーザー数</p>
-                <p className="text-2xl font-bold text-gray-900">{stats.total_users}</p>
-                <p className="text-xs text-gray-500">アクティブ: {stats.active_users}</p>
-              </div>
-            </Card>
+          <>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+              <Card className="p-6">
+                <div className="flex items-center">
+                  <div className="flex-1">
+                    <p className="text-sm font-medium text-gray-600">総ユーザー数</p>
+                    <p className="text-2xl font-bold text-gray-900">{stats.total_users}</p>
+                    <p className="text-xs text-gray-500 mt-1">
+                      アクティブ: {stats.active_users}名
+                    </p>
+                  </div>
+                  <div className="ml-4">
+                    <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-blue-500">
+                      <svg className="h-6 w-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197m13.5-9a2.5 2.5 0 11-5 0 2.5 2.5 0 015 0z" />
+                      </svg>
+                    </div>
+                  </div>
+                </div>
+              </Card>
 
-            <Card className="p-6">
-              <div className="text-center">
-                <p className="text-sm font-medium text-gray-600">総大会数</p>
-                <p className="text-2xl font-bold text-gray-900">{stats.total_competitions}</p>
-                <p className="text-xs text-gray-500">アクティブ: {stats.active_competitions}</p>
-              </div>
-            </Card>
+              <Card className="p-6">
+                <div className="flex items-center">
+                  <div className="flex-1">
+                    <p className="text-sm font-medium text-gray-600">総大会数</p>
+                    <p className="text-2xl font-bold text-gray-900">{stats.total_competitions}</p>
+                    <p className="text-xs text-gray-500 mt-1">
+                      アクティブ: {stats.active_competitions}大会
+                    </p>
+                  </div>
+                  <div className="ml-4">
+                    <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-green-500">
+                      <svg className="h-6 w-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+                      </svg>
+                    </div>
+                  </div>
+                </div>
+              </Card>
 
-            <Card className="p-6">
-              <div className="text-center">
-                <p className="text-sm font-medium text-gray-600">センサーレコード</p>
-                <p className="text-2xl font-bold text-gray-900">{stats.total_sensor_records.toLocaleString()}</p>
-                <p className="text-xs text-gray-500">マッピング済み: {stats.mapped_sensor_records.toLocaleString()}</p>
-              </div>
-            </Card>
+              <Card className="p-6">
+                <div className="flex items-center">
+                  <div className="flex-1">
+                    <p className="text-sm font-medium text-gray-600">総センサー記録</p>
+                    <p className="text-2xl font-bold text-gray-900">
+                      {stats.total_sensor_records.toLocaleString()}
+                    </p>
+                    <p className="text-xs text-gray-500 mt-1">
+                      マッピング済み: {stats.mapped_sensor_records.toLocaleString()}
+                    </p>
+                  </div>
+                  <div className="ml-4">
+                    <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-purple-500">
+                      <svg className="h-6 w-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                      </svg>
+                    </div>
+                  </div>
+                </div>
+              </Card>
 
-            <Card className="p-6">
-              <div className="text-center">
-                <p className="text-sm font-medium text-gray-600">未マッピング</p>
-                <p className="text-2xl font-bold text-gray-900">{stats.unmapped_sensor_records.toLocaleString()}</p>
-                <p className="text-xs text-gray-500">要処理データ</p>
-              </div>
-            </Card>
-          </div>
+              <Card className="p-6">
+                <div className="flex items-center">
+                  <div className="flex-1">
+                    <p className="text-sm font-medium text-gray-600">未マッピング</p>
+                    <p className="text-2xl font-bold text-orange-600">
+                      {stats.unmapped_sensor_records.toLocaleString()}
+                    </p>
+                    <p className="text-xs text-gray-500 mt-1">
+                      要確認データ
+                    </p>
+                  </div>
+                  <div className="ml-4">
+                    <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-orange-500">
+                      <svg className="h-6 w-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
+                      </svg>
+                    </div>
+                  </div>
+                </div>
+              </Card>
+            </div>
+          </>
         )}
 
-        {/* 🆕 管理機能ナビゲーション */}
+        {/* 主要機能 */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          <Card className="p-6 hover:shadow-lg transition-shadow">
+          <Card className="p-6">
             <div className="text-center">
-              <div className="mx-auto w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center mb-4">
-                <svg className="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-blue-100 mb-4">
+                <svg className="h-6 w-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197m13.5-9a2.5 2.5 0 11-5 0 2.5 2.5 0 015 0z" />
                 </svg>
               </div>
               <h3 className="text-lg font-semibold text-gray-900 mb-2">ユーザー管理</h3>
-              <p className="text-sm text-gray-600 mb-4">システムユーザーの管理・権限設定</p>
-              <Button onClick={() => navigate('/admin/users')} className="w-full">
-                ユーザー管理へ
+              <p className="text-sm text-gray-600 mb-4">ユーザーアカウントの作成・編集・削除</p>
+              <Button 
+                onClick={() => navigate('/admin/users')} 
+                className="w-full"
+              >
+                ユーザー管理画面
               </Button>
             </div>
           </Card>
 
-          <Card className="p-6 hover:shadow-lg transition-shadow">
+          <Card className="p-6">
             <div className="text-center">
-              <div className="mx-auto w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center mb-4">
-                <svg className="w-6 h-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-green-100 mb-4">
+                <svg className="h-6 w-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
                 </svg>
               </div>
               <h3 className="text-lg font-semibold text-gray-900 mb-2">大会管理</h3>
               <p className="text-sm text-gray-600 mb-4">大会の作成・編集・削除</p>
-              <Button onClick={() => navigate('/admin/competitions')} className="w-full">
-                大会管理へ
+              <Button 
+                onClick={() => navigate('/admin/competitions')} 
+                className="w-full"
+              >
+                大会管理画面
               </Button>
             </div>
           </Card>
 
-          {/* 🆕 新しいアップロード画面へのリンク */}
-          <Card className="p-6 hover:shadow-lg transition-shadow border-2 border-purple-200 bg-purple-50">
+          <Card className="p-6">
             <div className="text-center">
-              <div className="mx-auto w-12 h-12 bg-purple-100 rounded-lg flex items-center justify-center mb-4">
-                <svg className="w-6 h-6 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-purple-100 mb-4">
+                <svg className="h-6 w-6 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
                 </svg>
               </div>
-              <h3 className="text-lg font-semibold text-purple-900 mb-2">🆕 実データアップロード</h3>
+              <h3 className="text-lg font-semibold text-purple-900 mb-2">センサーデータアップロード</h3>
               <p className="text-sm text-purple-700 mb-4">halshare・e-Celcius・TCX形式対応</p>
               <Button 
-                onClick={() => navigate('/sensor-data-upload')} 
+                onClick={() => navigate('/admin/upload')} 
                 className="w-full bg-purple-600 hover:bg-purple-700"
               >
-                新アップロード画面へ
+                アップロード画面
               </Button>
             </div>
           </Card>
         </div>
-
-        {/* 🔄 既存のアップロード画面へのリンク（互換性維持） */}
-        <Card className="p-6 bg-gray-50">
-          <h3 className="text-lg font-semibold text-gray-900 mb-4">従来のアップロード機能</h3>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <Button 
-              onClick={() => navigate('/multi-sensor/upload')} 
-              variant="outline"
-              className="w-full"
-            >
-              従来のマルチセンサーアップロード
-            </Button>
-            <Button 
-              onClick={() => navigate('/multi-sensor/status')} 
-              variant="outline"
-              className="w-full"
-            >
-              データ状況確認
-            </Button>
-          </div>
-          <p className="text-xs text-gray-500 mt-2">
-            ※ 新しい実データアップロード機能をご利用ください
-          </p>
-        </Card>
 
         {/* クイックアクション */}
         <Card className="p-6">
           <h3 className="text-lg font-semibold text-gray-900 mb-4">クイックアクション</h3>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <Button 
-              onClick={() => window.open('/docs', '_blank')} 
+              onClick={() => window.open('http://localhost:8000/docs', '_blank')} 
               variant="outline"
               className="w-full"
             >
@@ -217,7 +254,7 @@ export const AdminDashboard: React.FC = () => {
               統計データ更新
             </Button>
             <Button 
-              onClick={() => navigate('/admin/system-logs')} 
+              onClick={() => console.log('System logs')} 
               variant="outline"
               className="w-full"
               disabled

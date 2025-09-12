@@ -1,5 +1,5 @@
 """
-app/main.py (修正版)
+app/main.py (統合後)
 """
 
 from fastapi import FastAPI
@@ -7,8 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.database import engine, Base
 
 # ルーターインポート
-from app.routers import auth, user_data, competition
-from app.routers.admin import router as admin_router
+from app.routers import auth, user_data, competition, admin
 
 Base.metadata.create_all(bind=engine)
 
@@ -33,7 +32,7 @@ app.add_middleware(
 # public/ → 公共の環境データ
 
 app.include_router(auth.router, prefix="/auth", tags=["authentication"])
-app.include_router(admin_router, tags=["admin"])  # /admin/* endpoints
+app.include_router(admin.router, tags=["admin"])  # /admin/* endpoints
 app.include_router(user_data.router, tags=["user-data"])  # /me/* endpoints
 app.include_router(competition.router, tags=["competitions"])  # /public/* endpoints
 

@@ -1,6 +1,6 @@
 """
-app/routers/__init__.py (修正版)
+app/routers/__init__.py (統合後)
 """
 
 # 存在するルーターのみインポート
-from . import auth, competition, user_data
+from . import auth, competition, user_data, admin
