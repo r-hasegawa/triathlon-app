@@ -936,7 +936,7 @@ async def get_upload_batches(
             "status": batch.status.value if hasattr(batch.status, 'value') else str(batch.status),
             "uploaded_by": batch.uploaded_by,
             "notes": batch.notes,
-            "created_at": batch.created_at.isoformat() if batch.created_at else None
+            "created_at": batch.uploaded_at.isoformat() if batch.uploaded_at else None
         })
     
     return {
