@@ -244,6 +244,8 @@ async def delete_competition(
 
 # ===== データアップロード =====
 
+# app/routers/admin.py - 最終修正版（クォート処理対応）
+
 @router.post("/upload/skin-temperature")
 async def upload_skin_temperature(
     competition_id: str = Form(...),
@@ -251,7 +253,7 @@ async def upload_skin_temperature(
     db: Session = Depends(get_db),
     current_admin: AdminUser = Depends(get_current_admin)
 ):
-    """体表温データ（halshare）アップロード"""
+    """体表温データ（halshare）アップロード - 最終修正版"""
     
     competition = db.query(Competition).filter_by(competition_id=competition_id).first()
     if not competition:
@@ -266,10 +268,14 @@ async def upload_skin_temperature(
             content = await file.read()
             encoding = detect_encoding(content)
             
+            # CSVファイル読み込み
             try:
                 df = pd.read_csv(io.BytesIO(content), encoding=encoding)
             except UnicodeDecodeError:
-                df = pd.read_csv(io.BytesIO(content), encoding='utf-8')
+                try:
+                    df = pd.read_csv(io.BytesIO(content), encoding='utf-8')
+                except Exception as e:
+                    df = pd.read_csv(io.BytesIO(content), encoding='shift-jis')
             
             # 必要な列の確認
             required_cols = ['halshareWearerName', 'halshareId', 'datetime', 'temperature']
@@ -277,6 +283,7 @@ async def upload_skin_temperature(
             if missing_cols:
                 raise HTTPException(status_code=400, detail=f"Missing columns: {missing_cols}")
             
+            # バッチ作成
             batch = UploadBatch(
                 batch_id=batch_id,
                 sensor_type=SensorType.SKIN_TEMPERATURE,
@@ -285,31 +292,77 @@ async def upload_skin_temperature(
                 competition_id=competition_id,
                 uploaded_by=current_admin.admin_id
             )
+            db.add(batch)
             
             success_count = 0
             failed_count = 0
             
             for _, row in df.iterrows():
                 try:
+                    # データ抽出と正規化（クォート・スペース除去）
+                    wearer_name = str(row['halshareWearerName']).strip()
+                    sensor_id = str(row['halshareId']).strip()
+                    datetime_str = str(row['datetime']).strip()
+                    
+                    # クォート除去処理
+                    if sensor_id.startswith(' "') and sensor_id.endswith('"'):
+                        sensor_id = sensor_id[2:-1]  # ' "値" → 値
+                    elif sensor_id.startswith('"') and sensor_id.endswith('"'):
+                        sensor_id = sensor_id[1:-1]   # "値" → 値
+                    
+                    if datetime_str.startswith(' "') and datetime_str.endswith('"'):
+                        datetime_str = datetime_str[2:-1]  # ' "日時" → 日時
+                    elif datetime_str.startswith('"') and datetime_str.endswith('"'):
+                        datetime_str = datetime_str[1:-1]   # "日時" → 日時
+                    
+                    # 最終的な空白除去
+                    wearer_name = wearer_name.strip()
+                    sensor_id = sensor_id.strip()
+                    datetime_str = datetime_str.strip()
+                    
+                    # 空値チェック
+                    if not wearer_name or wearer_name in ['nan', 'None']:
+                        raise ValueError("着用者名が空")
+                    
+                    if not sensor_id or sensor_id in ['nan', 'None']:
+                        raise ValueError("センサーIDが空")
+                    
+                    if not datetime_str or datetime_str in ['nan', 'None']:
+                        raise ValueError("日時が空")
+                    
+                    if pd.isna(row['temperature']):
+                        raise ValueError("温度が空")
+                    
+                    # 日時パース（正規化後）
+                    try:
+                        parsed_datetime = pd.to_datetime(datetime_str)
+                    except Exception as e:
+                        raise ValueError(f"日時パースエラー: '{datetime_str}'")
+                    
+                    # 温度変換
+                    temperature = float(row['temperature'])
+                    
+                    # データ保存
                     skin_data = SkinTemperatureData(
-                        halshare_wearer_name=row['halshareWearerName'],
-                        halshare_id=row['halshareId'],
-                        datetime=pd.to_datetime(row['datetime']),
-                        temperature=float(row['temperature']),
+                        halshare_wearer_name=wearer_name,
+                        halshare_id=sensor_id,
+                        datetime=parsed_datetime,
+                        temperature=temperature,
                         upload_batch_id=batch_id,
                         competition_id=competition_id
                     )
                     db.add(skin_data)
                     success_count += 1
+                    
                 except Exception as e:
                     failed_count += 1
             
+            # バッチ情報更新
             batch.total_records = len(df)
             batch.success_records = success_count
             batch.failed_records = failed_count
             batch.status = UploadStatus.SUCCESS if failed_count == 0 else UploadStatus.PARTIAL
             
-            db.add(batch)
             db.commit()
             
             results.append({
