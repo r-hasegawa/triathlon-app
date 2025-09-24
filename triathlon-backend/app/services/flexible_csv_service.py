@@ -665,3 +665,627 @@ class FlexibleCSVService:
             }
             for sensor in unmapped_sensors
         ]
+
+    def _detect_race_phases(self, record_data: dict) -> dict:
+        """SWIM/BIKE/RUN区間自動判定（フィードバックグラフ背景色用）"""
+        phases = {
+            'swim_phase': None,
+            'bike_phase': None, 
+            'run_phase': None,
+            'total_phase': None,
+            'transition_phases': []  # トランジション期間
+        }
+        
+        try:
+            # 全体の開始・終了時刻
+            start_times = [record_data['swim_start'], record_data['bike_start'], record_data['run_start']]
+            finish_times = [record_data['swim_finish'], record_data['bike_finish'], record_data['run_finish']]
+            
+            start_times = [t for t in start_times if t is not None]
+            finish_times = [t for t in finish_times if t is not None]
+            
+            if start_times and finish_times:
+                total_start = min(start_times)
+                total_finish = max(finish_times)
+                phases['total_phase'] = {
+                    'start': total_start,
+                    'finish': total_finish,
+                    'duration_seconds': (total_finish - total_start).total_seconds()
+                }
+            
+            # 各競技フェーズ（フィードバックグラフの背景色用）
+            if record_data['swim_start'] and record_data['swim_finish']:
+                swim_duration = (record_data['swim_finish'] - record_data['swim_start']).total_seconds()
+                phases['swim_phase'] = {
+                    'start': record_data['swim_start'],
+                    'finish': record_data['swim_finish'],
+                    'duration_seconds': swim_duration,
+                    'phase_type': 'swim'
+                }
+            
+            if record_data['bike_start'] and record_data['bike_finish']:
+                bike_duration = (record_data['bike_finish'] - record_data['bike_start']).total_seconds()
+                phases['bike_phase'] = {
+                    'start': record_data['bike_start'],
+                    'finish': record_data['bike_finish'],
+                    'duration_seconds': bike_duration,
+                    'phase_type': 'bike'
+                }
+            
+            if record_data['run_start'] and record_data['run_finish']:
+                run_duration = (record_data['run_finish'] - record_data['run_start']).total_seconds()
+                phases['run_phase'] = {
+                    'start': record_data['run_start'],
+                    'finish': record_data['run_finish'],
+                    'duration_seconds': run_duration,
+                    'phase_type': 'run'
+                }
+            
+            # 🆕 トランジション期間の検出（競技間の移行時間）
+            transitions = []
+            
+            # SWIM → BIKE トランジション
+            if (record_data['swim_finish'] and record_data['bike_start'] and 
+                record_data['bike_start'] > record_data['swim_finish']):
+                t1_duration = (record_data['bike_start'] - record_data['swim_finish']).total_seconds()
+                transitions.append({
+                    'name': 'T1_transition',
+                    'start': record_data['swim_finish'],
+                    'finish': record_data['bike_start'],
+                    'duration_seconds': t1_duration,
+                    'phase_type': 'transition'
+                })
+            
+            # BIKE → RUN トランジション
+            if (record_data['bike_finish'] and record_data['run_start'] and 
+                record_data['run_start'] > record_data['bike_finish']):
+                t2_duration = (record_data['run_start'] - record_data['bike_finish']).total_seconds()
+                transitions.append({
+                    'name': 'T2_transition',
+                    'start': record_data['bike_finish'],
+                    'finish': record_data['run_start'],
+                    'duration_seconds': t2_duration,
+                    'phase_type': 'transition'
+                })
+            
+            phases['transition_phases'] = transitions
+            
+            # 🆕 LAP時刻の解析（BL1, BL2...から区間推定）
+            if record_data['laps']:
+                lap_analysis = self._analyze_lap_times(record_data['laps'], phases)
+                phases['lap_analysis'] = lap_analysis
+            
+            # 🆕 フィードバックグラフ用の時間軸データ生成
+            phases['graph_segments'] = self._generate_graph_segments(phases)
+            
+        except Exception as e:
+            print(f"区間判定エラー: {e}")
+            # エラー時もbasestructureは返す
+            phases['error'] = str(e)
+        
+        return phases
+
+    def _analyze_lap_times(self, laps: dict, phases: dict) -> dict:
+        """LAP時刻の解析（BL1, BL2...からの詳細区間推定）"""
+        lap_analysis = {
+            'total_laps': len(laps),
+            'lap_times': [],
+            'estimated_segments': []
+        }
+        
+        try:
+            # LAP時刻をソート
+            sorted_laps = sorted(laps.items(), key=lambda x: x[1] if x[1] else datetime.min)
+            
+            for i, (lap_name, lap_time) in enumerate(sorted_laps):
+                if lap_time is None:
+                    continue
+                    
+                lap_info = {
+                    'lap_name': lap_name,
+                    'lap_time': lap_time,
+                    'lap_number': i + 1
+                }
+                
+                # 前のLAPとの時間差計算
+                if i > 0:
+                    prev_time = sorted_laps[i-1][1]
+                    if prev_time:
+                        interval_seconds = (lap_time - prev_time).total_seconds()
+                        lap_info['interval_from_previous'] = interval_seconds
+                
+                # 競技開始からの経過時間
+                if phases.get('total_phase') and phases['total_phase'].get('start'):
+                    total_start = phases['total_phase']['start']
+                    elapsed_seconds = (lap_time - total_start).total_seconds()
+                    lap_info['elapsed_from_start'] = elapsed_seconds
+                
+                lap_analysis['lap_times'].append(lap_info)
+            
+            # 🆕 LAP時刻から競技区間の推定
+            lap_analysis['estimated_segments'] = self._estimate_segments_from_laps(
+                sorted_laps, phases
+            )
+            
+        except Exception as e:
+            lap_analysis['error'] = str(e)
+            print(f"LAP解析エラー: {e}")
+        
+        return lap_analysis
+
+    def _estimate_segments_from_laps(self, sorted_laps, phases: dict) -> list:
+        """LAP時刻から競技区間を推定（実データBL/RL対応）"""
+        segments = []
+        
+        try:
+            if not sorted_laps or len(sorted_laps) < 1:
+                return segments
+            
+            # 🆕 実データ対応：BL(バイクLAP)とRL(ランLAP)の区別
+            bike_laps = [(name, time) for name, time in sorted_laps if name.upper().startswith('BL')]
+            run_laps = [(name, time) for name, time in sorted_laps if name.upper().startswith('RL')]
+            
+            # バイクLAP区間
+            if bike_laps:
+                bike_laps.sort(key=lambda x: x[1])  # 時刻でソート
+                segments.append({
+                    'segment_type': 'bike_lap_segment',
+                    'start_lap': bike_laps[0][0],
+                    'end_lap': bike_laps[-1][0],
+                    'start_time': bike_laps[0][1],
+                    'end_time': bike_laps[-1][1],
+                    'lap_count': len(bike_laps),
+                    'confidence': 'high'  # BL列なので確実にバイク区間
+                })
+            
+            # ランLAP区間
+            if run_laps:
+                run_laps.sort(key=lambda x: x[1])  # 時刻でソート
+                segments.append({
+                    'segment_type': 'run_lap_segment',
+                    'start_lap': run_laps[0][0],
+                    'end_lap': run_laps[-1][0],
+                    'start_time': run_laps[0][1],
+                    'end_time': run_laps[-1][1],
+                    'lap_count': len(run_laps),
+                    'confidence': 'high'  # RL列なので確実にラン区間
+                })
+            
+            # 🆕 実データに基づく区間推定ロジック
+            # START → SF：スイム区間
+            # SF → BS：第1トランジション
+            # BS → BL1〜BLn：バイク区間
+            # BLn → RS：第2トランジション（バイク終了判定が必要な場合）
+            # RS → RL1〜RLn → RF：ラン区間
+            
+            # より詳細な解析（実測値と組み合わせ）
+            all_times = [(name, time) for name, time in sorted_laps if time]
+            all_times.sort(key=lambda x: x[1])
+            
+            if all_times:
+                segments.append({
+                    'segment_type': 'total_lap_coverage',
+                    'start_lap': all_times[0][0],
+                    'end_lap': all_times[-1][0],
+                    'start_time': all_times[0][1],
+                    'end_time': all_times[-1][1],
+                    'total_laps': len(all_times),
+                    'bike_laps': len(bike_laps),
+                    'run_laps': len(run_laps)
+                })
+            
+        except Exception as e:
+            print(f"実データ区間推定エラー: {e}")
+        
+        return segments
+
+    def _generate_graph_segments(self, phases: dict) -> list:
+        """フィードバックグラフ用の時間軸セグメント生成"""
+        segments = []
+        
+        try:
+            # 確定区間（実際のSTART/FINISH時刻から）
+            for phase_name in ['swim_phase', 'bike_phase', 'run_phase']:
+                phase = phases.get(phase_name)
+                if phase and phase.get('start') and phase.get('finish'):
+                    segments.append({
+                        'segment_type': phase['phase_type'],
+                        'start_time': phase['start'],
+                        'end_time': phase['finish'],
+                        'duration_seconds': phase['duration_seconds'],
+                        'confidence': 'high',  # 実測値なので高信頼度
+                        'background_color': self._get_phase_color(phase['phase_type'])
+                    })
+            
+            # トランジション区間
+            for transition in phases.get('transition_phases', []):
+                segments.append({
+                    'segment_type': 'transition',
+                    'start_time': transition['start'],
+                    'end_time': transition['finish'],
+                    'duration_seconds': transition['duration_seconds'],
+                    'confidence': 'high',
+                    'background_color': '#f0f0f0'  # グレー
+                })
+            
+            # LAP推定区間（実測値がない場合の補完）
+            lap_analysis = phases.get('lap_analysis', {})
+            if lap_analysis.get('estimated_segments') and not segments:
+                # 実測値がない場合のみLAP推定を使用
+                for est_segment in lap_analysis['estimated_segments']:
+                    segments.append({
+                        'segment_type': est_segment['segment_type'],
+                        'start_time': est_segment['start_time'],
+                        'end_time': est_segment['end_time'],
+                        'confidence': 'medium',  # 推定値なので中信頼度
+                        'background_color': self._get_phase_color(
+                            est_segment['segment_type'].replace('estimated_', '')
+                        )
+                    })
+            
+            # 時間順にソート
+            segments.sort(key=lambda x: x['start_time'])
+            
+        except Exception as e:
+            print(f"グラフセグメント生成エラー: {e}")
+        
+        return segments
+
+    def _get_phase_color(self, phase_type: str) -> str:
+        """競技フェーズの背景色を取得"""
+        colors = {
+            'swim': '#e3f2fd',    # 水色（SWIM）
+            'bike': '#fff3e0',    # オレンジ（BIKE）
+            'run': '#e8f5e8',     # 緑（RUN）
+            'transition': '#f5f5f5'  # グレー（トランジション）
+        }
+        return colors.get(phase_type, '#ffffff')  # デフォルトは白# app/services/flexible_csv_service.py に追加するメソッド
+
+    async def process_race_record_data(
+        self,
+        race_files: List[UploadFile],
+        competition_id: str,
+        db: Session,
+        overwrite: bool = True
+    ) -> Dict[str, Any]:
+        """
+        大会記録データ処理（複数CSV統合対応）
+        
+        仕様書2.5準拠:
+        - 複数CSVファイル対応
+        - ゼッケン番号（"No."列）による統合
+        - 可変LAP構成（BL1, BL2...）対応
+        - SWIM/BIKE/RUN区間自動判定
+        """
+        try:
+            # 大会存在チェック
+            from app.models.competition import Competition, RaceRecord
+            competition = db.query(Competition).filter_by(competition_id=competition_id).first()
+            if not competition:
+                raise HTTPException(status_code=400, detail=f"大会ID '{competition_id}' が見つかりません")
+            
+            # 上書き処理：既存大会記録を削除
+            if overwrite and competition_id:
+                deleted_count = db.query(RaceRecord).filter_by(competition_id=competition_id).delete()
+                db.commit()
+                print(f"既存大会記録{deleted_count}件を削除しました")
+            
+            # バッチID生成
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            batch_id = f"{timestamp}_race_records_{len(race_files)}files"
+            
+            # 全CSVファイルを読み込み・統合
+            all_records = {}  # ゼッケン番号をキーとした統合データ
+            lap_columns = set()  # 検出されたLAP列名
+            total_files_processed = 0
+            total_csv_records = 0
+            errors = []
+            
+            for file_idx, file in enumerate(race_files):
+                try:
+                    print(f"Processing file {file_idx + 1}/{len(race_files)}: {file.filename}")
+                    
+                    # ファイル読み込み
+                    content = await file.read()
+                    if not content:
+                        errors.append(f"{file.filename}: 空ファイル")
+                        continue
+                    
+                    # エンコーディング自動検出
+                    detected_encoding = None
+                    for encoding in ['utf-8', 'shift_jis', 'cp932', 'iso-8859-1']:
+                        try:
+                            decoded_content = content.decode(encoding)
+                            detected_encoding = encoding
+                            break
+                        except UnicodeDecodeError:
+                            continue
+                    
+                    if detected_encoding is None:
+                        errors.append(f"{file.filename}: 文字コード認識失敗")
+                        continue
+                    
+                    print(f"  使用エンコーディング: {detected_encoding}")
+                    
+                    # CSVをDataFrameに読み込み
+                    df = pd.read_csv(io.StringIO(decoded_content))
+                    
+                    if df.empty:
+                        errors.append(f"{file.filename}: データが空")
+                        continue
+                    
+                    total_csv_records += len(df)
+                    
+                    # 必須列チェック：ゼッケン番号（"No."列）
+                    bib_number_col = None
+                    for col in df.columns:
+                        if col.strip().lower() in ['no.', 'no', 'bib', 'bib_number', 'ゼッケン', 'ゼッケン番号']:
+                            bib_number_col = col
+                            break
+                    
+                    if bib_number_col is None:
+                        errors.append(f"{file.filename}: ゼッケン番号列（'No.'）が見つかりません")
+                        continue
+                    
+                    # LAP列の検出（BL1, BL2, BL3...等 + RL1, RL2...等）
+                    file_lap_columns = []
+                    for col in df.columns:
+                        col_upper = col.strip().upper()
+                        # バイクLAP（BL1, BL2...）とランLAP（RL1, RL2...）両方を検出
+                        if ((col_upper.startswith('BL') or col_upper.startswith('RL')) and 
+                            len(col_upper) >= 3 and col_upper[2:].isdigit()):
+                            file_lap_columns.append(col)
+                            lap_columns.add(col)
+                    
+                    print(f"  検出されたLAP列: {file_lap_columns}")
+                    
+                    # 各行を処理してゼッケン番号で統合
+                    for _, row in df.iterrows():
+                        bib_number = str(row[bib_number_col]).strip()
+                        
+                        if not bib_number or bib_number == 'nan':
+                            continue
+                        
+                        # 統合データ構造の初期化
+                        if bib_number not in all_records:
+                            all_records[bib_number] = {
+                                'bib_number': bib_number,
+                                'swim_start': None,
+                                'swim_finish': None,
+                                'bike_start': None,
+                                'bike_finish': None,
+                                'run_start': None,
+                                'run_finish': None,
+                                'laps': {},
+                                'source_files': []
+                            }
+                        
+                        record = all_records[bib_number]
+                        record['source_files'].append(file.filename)
+                        
+                        # 🆕 実データ対応：短縮形式の列名マッピング
+                        for col in df.columns:
+                            col_clean = col.strip()
+                            col_upper = col_clean.upper()
+                            value = row[col]
+                            
+                            if pd.isna(value):
+                                continue
+                            
+                            # 時刻データの解析
+                            time_value = self._parse_race_time(value)
+                            if time_value is None:
+                                continue
+                            
+                            # 🆕 実データの短縮形式に対応
+                            if col_upper == 'START':
+                                record['swim_start'] = time_value
+                            elif col_upper == 'SF':  # Swim Finish
+                                record['swim_finish'] = time_value
+                            elif col_upper == 'BS':  # Bike Start
+                                record['bike_start'] = time_value
+                            elif col_upper == 'RS':  # Run Start
+                                record['run_start'] = time_value
+                            elif col_upper == 'RF':  # Run Finish
+                                record['run_finish'] = time_value
+                            
+                            # レガシー列名も念のため対応
+                            elif 'swim' in col_upper and 'start' in col_upper:
+                                record['swim_start'] = time_value
+                            elif 'swim' in col_upper and ('finish' in col_upper or 'end' in col_upper):
+                                record['swim_finish'] = time_value
+                            elif 'bike' in col_upper and 'start' in col_upper:
+                                record['bike_start'] = time_value
+                            elif 'bike' in col_upper and ('finish' in col_upper or 'end' in col_upper):
+                                record['bike_finish'] = time_value
+                            elif 'run' in col_upper and 'start' in col_upper:
+                                record['run_start'] = time_value
+                            elif 'run' in col_upper and ('finish' in col_upper or 'end' in col_upper):
+                                record['run_finish'] = time_value
+                        
+                        # LAP データ抽出
+                        for lap_col in file_lap_columns:
+                            lap_value = row[lap_col]
+                            if not pd.isna(lap_value):
+                                lap_time = self._parse_race_time(lap_value)
+                                if lap_time:
+                                    record['laps'][lap_col] = lap_time
+                    
+                    total_files_processed += 1
+                    print(f"  ✅ {file.filename}: {len(df)}件の記録を処理")
+                    
+                except Exception as e:
+                    error_msg = f"{file.filename}: 処理エラー - {str(e)}"
+                    errors.append(error_msg)
+                    print(f"  ❌ {error_msg}")
+                    continue
+            
+            if not all_records:
+                raise HTTPException(status_code=400, detail="処理可能な大会記録が見つかりませんでした")
+            
+            # データベースに保存
+            saved_count = 0
+            failed_count = 0
+            
+            for bib_number, record_data in all_records.items():
+                try:
+                    # SWIM/BIKE/RUN区間の自動判定
+                    phases = self._detect_race_phases(record_data)
+                    
+                    # RaceRecordエンティティ作成
+                    race_record = RaceRecord(
+                        competition_id=competition_id,
+                        user_id=None,  # マッピング後に設定
+                        race_number=bib_number,
+                        swim_start_time=record_data['swim_start'],
+                        swim_finish_time=record_data['swim_finish'],
+                        bike_start_time=record_data['bike_start'],
+                        bike_finish_time=record_data['bike_finish'],
+                        run_start_time=record_data['run_start'],
+                        run_finish_time=record_data['run_finish'],
+                        notes=f"LAP数: {len(record_data['laps'])}, ソースファイル: {', '.join(record_data['source_files'])}"
+                    )
+                    
+                    # 🆕 LAP データと区間情報を設定
+                    if record_data['laps']:
+                        race_record.set_lap_data(record_data['laps'])
+                    
+                    if phases:
+                        race_record.set_calculated_phases(phases)
+                    
+                    db.add(race_record)
+                    saved_count += 1
+                    
+                except Exception as e:
+                    failed_count += 1
+                    error_msg = f"ゼッケン{bib_number}: 保存エラー - {str(e)}"
+                    errors.append(error_msg)
+                    print(f"❌ {error_msg}")
+            
+            # バッチ記録作成
+            from app.models.flexible_sensor_data import UploadBatch, SensorType, UploadStatus
+            
+            total_file_size = sum([len(await f.read()) for f in race_files])
+            
+            batch = UploadBatch(
+                batch_id=batch_id,
+                sensor_type=SensorType.OTHER,  # 大会記録用
+                competition_id=competition_id,
+                file_name=f"race_records_{len(race_files)}files.csv",
+                file_size=total_file_size,
+                total_records=total_csv_records,
+                success_records=saved_count,
+                failed_records=failed_count,
+                status=UploadStatus.SUCCESS if failed_count == 0 else UploadStatus.PARTIAL,
+                uploaded_by=db.query(AdminUser).first().admin_id,  # 要修正
+                notes=f"統合LAP列: {', '.join(sorted(lap_columns))}" if lap_columns else None
+            )
+            db.add(batch)
+            
+            db.commit()
+            
+            # 結果メッセージ作成
+            message = f"大会記録を{saved_count}件統合処理しました"
+            if failed_count > 0:
+                message += f"（失敗: {failed_count}件）"
+            
+            return {
+                "success": saved_count > 0,
+                "message": message,
+                "total_files": len(race_files),
+                "processed_files": total_files_processed,
+                "total_csv_records": total_csv_records,
+                "saved_records": saved_count,
+                "failed_records": failed_count,
+                "detected_lap_columns": sorted(lap_columns),
+                "batch_id": batch_id,
+                "errors": errors[:10] if errors else []  # 最初の10件のみ
+            }
+            
+        except HTTPException:
+            raise
+        except Exception as e:
+            db.rollback()
+            error_message = f"大会記録処理エラー: {str(e)}"
+            print(error_message)
+            raise HTTPException(status_code=500, detail=error_message)
+
+    def _parse_race_time(self, time_value) -> Optional[datetime]:
+        """レース時刻の柔軟な解析"""
+        if pd.isna(time_value):
+            return None
+        
+        time_str = str(time_value).strip()
+        if not time_str or time_str.lower() in ['nan', '', 'null']:
+            return None
+        
+        try:
+            # 複数の時刻フォーマットに対応
+            formats = [
+                "%Y-%m-%d %H:%M:%S",
+                "%Y-%m-%d %H:%M:%S.%f",
+                "%Y/%m/%d %H:%M:%S",
+                "%d/%m/%Y %H:%M:%S",
+                "%H:%M:%S",
+                "%H:%M",
+                "%Y-%m-%d",
+            ]
+            
+            for fmt in formats:
+                try:
+                    return datetime.strptime(time_str, fmt)
+                except ValueError:
+                    continue
+            
+            # pandas to_datetimeでフォールバック
+            return pd.to_datetime(time_str)
+            
+        except Exception as e:
+            print(f"時刻解析エラー: {time_str} - {e}")
+            return None
+
+    def _detect_race_phases(self, record_data: dict) -> dict:
+        """SWIM/BIKE/RUN区間自動判定"""
+        phases = {
+            'swim_phase': None,
+            'bike_phase': None, 
+            'run_phase': None,
+            'total_phase': None
+        }
+        
+        try:
+            # 全体の開始・終了時刻
+            start_times = [record_data['swim_start'], record_data['bike_start'], record_data['run_start']]
+            finish_times = [record_data['swim_finish'], record_data['bike_finish'], record_data['run_finish']]
+            
+            start_times = [t for t in start_times if t is not None]
+            finish_times = [t for t in finish_times if t is not None]
+            
+            if start_times and finish_times:
+                total_start = min(start_times)
+                total_finish = max(finish_times)
+                phases['total_phase'] = {'start': total_start, 'finish': total_finish}
+            
+            # 各競技フェーズ
+            if record_data['swim_start'] and record_data['swim_finish']:
+                phases['swim_phase'] = {
+                    'start': record_data['swim_start'],
+                    'finish': record_data['swim_finish']
+                }
+            
+            if record_data['bike_start'] and record_data['bike_finish']:
+                phases['bike_phase'] = {
+                    'start': record_data['bike_start'],
+                    'finish': record_data['bike_finish']
+                }
+            
+            if record_data['run_start'] and record_data['run_finish']:
+                phases['run_phase'] = {
+                    'start': record_data['run_start'],
+                    'finish': record_data['run_finish']
+                }
+            
+        except Exception as e:
+            print(f"区間判定エラー: {e}")
+        
+        return phases

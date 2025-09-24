@@ -25,6 +25,10 @@ export const AdminDashboard: React.FC = () => {
     fetchStats();
   }, []);
 
+  useEffect(() => {
+  console.log('AdminDashboard stats:', stats);
+}, [stats]);
+
   const fetchStats = async () => {
     try {
       setIsLoading(true);
@@ -138,7 +142,7 @@ export const AdminDashboard: React.FC = () => {
                   <div className="flex-1">
                     <p className="text-sm font-medium text-gray-600">総センサー記録</p>
                     <p className="text-2xl font-bold text-gray-900">
-                      {stats.total_sensor_records.toLocaleString()}
+                      {stats.total_sensor_records.toLocaleString() || '未設定'}
                     </p>
                     <p className="text-xs text-gray-500 mt-1">
                       マッピング済み: {stats.mapped_sensor_records.toLocaleString()}

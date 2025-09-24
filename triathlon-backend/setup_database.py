@@ -1,8 +1,10 @@
 """
-setup_database.py (テーブル重複回避版)
+setup_database.py (完全版 - 大会記録機能対応)
 """
 
 import sys
+import os
+import csv
 from pathlib import Path
 from datetime import date, datetime, timedelta
 import random
@@ -13,10 +15,9 @@ from app.database import engine, Base, SessionLocal
 from app.models.user import User, AdminUser
 from app.models.competition import Competition, RaceRecord  
 from app.models.flexible_sensor_data import (
-    # 既存のモデルのみ使用（新しいテーブルも含まれている）
-    RawSensorData, FlexibleSensorMapping,
     SkinTemperatureData, CoreTemperatureData, 
-    HeartRateData, WBGTData, UploadBatch
+    HeartRateData, WBGTData, UploadBatch,
+    FlexibleSensorMapping, SensorType, UploadStatus
 )
 from app.utils.security import get_password_hash
 
@@ -26,11 +27,13 @@ def create_tables():
     Base.metadata.create_all(bind=engine)
     print("✅ Tables created successfully!")
     print("📊 Sensor data tables included:")
+    print("   - race_records (大会記録 - LAP・区間データ対応)")
     print("   - skin_temperature_data (halshare対応)")
     print("   - core_temperature_data (e-Celcius対応)")
     print("   - heart_rate_data (TCX対応)")
+    print("   - wbgt_data (環境データ)")
+    print("   - flexible_sensor_mappings (マッピング)")
     print("   - upload_batches (バッチ管理)")
-    print("   - sensor_mappings (マッピング)")
 
 def create_initial_users():
     """初期ユーザー・管理者作成"""
@@ -128,7 +131,7 @@ def create_sample_competitions():
         db.close()
 
 def create_race_records(competition_ids):
-    """大会記録作成"""
+    """大会記録作成（修正版）"""
     db = SessionLocal()
     
     try:
@@ -150,19 +153,48 @@ def create_race_records(competition_ids):
                 run_start = bike_finish + timedelta(minutes=random.randint(2, 5))  # トランジション
                 run_finish = run_start + run_duration
                 
+                # 🔧 修正：プロパティへの代入を削除
                 race_record = RaceRecord(
                     user_id=user_id,
                     competition_id=comp_id,
-                    bib_number=str(100 + i),
+                    race_number=str(100 + i),  # bib_number → race_number
                     swim_start_time=swim_start,
                     swim_finish_time=swim_finish,
                     bike_start_time=bike_start,
                     bike_finish_time=bike_finish,
                     run_start_time=run_start,
-                    run_finish_time=run_finish,
-                    total_start_time=swim_start,
-                    total_finish_time=run_finish
+                    run_finish_time=run_finish
+                    # total_start_time, total_finish_time を削除（プロパティで自動計算）
                 )
+                
+                # 🆕 サンプルLAPデータ設定
+                sample_laps = {
+                    "BL1": bike_start + timedelta(minutes=20),
+                    "BL2": bike_start + timedelta(minutes=40),
+                    "RL1": run_start + timedelta(minutes=15)
+                }
+                race_record.set_lap_data(sample_laps)
+                
+                # 🆕 サンプル区間データ設定
+                sample_phases = {
+                    "swim_phase": {
+                        "start": swim_start,
+                        "finish": swim_finish,
+                        "duration_seconds": swim_duration.total_seconds()
+                    },
+                    "bike_phase": {
+                        "start": bike_start,
+                        "finish": bike_finish,
+                        "duration_seconds": bike_duration.total_seconds()
+                    },
+                    "run_phase": {
+                        "start": run_start,
+                        "finish": run_finish,
+                        "duration_seconds": run_duration.total_seconds()
+                    }
+                }
+                race_record.set_calculated_phases(sample_phases)
+                
                 db.add(race_record)
                 
         db.commit()
@@ -170,12 +202,14 @@ def create_race_records(competition_ids):
         
     except Exception as e:
         print(f"❌ Error creating race records: {e}")
+        import traceback
+        traceback.print_exc()
         db.rollback()
     finally:
         db.close()
 
 def create_sample_real_format_data(competition_ids):
-    """🆕 実際のデータ形式でサンプルデータ作成"""
+    """🆕 実際のデータ形式でサンプルデータ作成（修正版）"""
     db = SessionLocal()
     
     try:
@@ -225,50 +259,238 @@ def create_sample_real_format_data(competition_ids):
                 
                 # 4. アップロードバッチ記録
                 for batch_id, sensor_type, file_name in [
-                    (skin_batch_id, "skin_temperature", f"halshare_test{i}.csv"),
-                    (core_batch_id, "core_temperature", f"monitor{i}.csv"), 
-                    (hr_batch_id, "heart_rate", f"garmin_test{i}.tcx")
+                    (skin_batch_id, SensorType.SKIN_TEMPERATURE, f"halshare_test{i}.csv"),
+                    (core_batch_id, SensorType.CORE_TEMPERATURE, f"monitor{i}.csv"), 
+                    (hr_batch_id, SensorType.HEART_RATE, f"garmin_test{i}.tcx")
                 ]:
                     batch = UploadBatch(
                         batch_id=batch_id,
                         sensor_type=sensor_type,
                         file_name=file_name,
                         total_records=10,
-                        success_records=10 if sensor_type != "core_temperature" else 7,  # core_temperatureは一部Missing
-                        failed_records=0 if sensor_type != "core_temperature" else 3,
-                        status="success" if sensor_type != "core_temperature" else "partial",
+                        success_records=10 if sensor_type != SensorType.CORE_TEMPERATURE else 7,  # core_temperatureは一部Missing
+                        failed_records=0 if sensor_type != SensorType.CORE_TEMPERATURE else 3,
+                        status=UploadStatus.SUCCESS if sensor_type != SensorType.CORE_TEMPERATURE else UploadStatus.PARTIAL,
                         competition_id=comp_id,
                         uploaded_by="admin"
                     )
                     db.add(batch)
                 
-                # 5. サンプルマッピング
-                mapping = SensorMapping(
-                    user_id=f"user00{i}",
-                    competition_id=comp_id,
-                    skin_temp_sensor_id=f"11000002{i}B17",
-                    core_temp_sensor_id=f"23.10.8E.8{i}",
-                    heart_rate_sensor_id=f"GARMIN_00{i}",
-                    race_record_id=str(100 + i),
-                    upload_batch_id=f"{batch_timestamp}_mapping.csv"
-                )
-                db.add(mapping)
+                # 5. 🔧 修正：FlexibleSensorMappingの正しい構造で作成
+                # 各センサータイプ別に個別のマッピング作成
+                mappings = [
+                    {
+                        "sensor_id": f"11000002{i}B17",
+                        "sensor_type": SensorType.SKIN_TEMPERATURE
+                    },
+                    {
+                        "sensor_id": f"23.10.8E.8{i}",
+                        "sensor_type": SensorType.CORE_TEMPERATURE
+                    },
+                    {
+                        "sensor_id": f"GARMIN_00{i}",
+                        "sensor_type": SensorType.HEART_RATE
+                    }
+                ]
+                
+                for mapping_data in mappings:
+                    mapping = FlexibleSensorMapping(
+                        user_id=f"user00{i}",
+                        competition_id=comp_id,
+                        sensor_id=mapping_data["sensor_id"],
+                        sensor_type=mapping_data["sensor_type"],
+                        is_active=True,
+                        subject_name=f"テスト被験者{i}",
+                        device_type="research"
+                    )
+                    db.add(mapping)
         
         db.commit()
         print("✅ Sample data created with real format compatibility")
         print("   - halshareWearerName, halshareId, datetime, temperature")
         print("   - capsule_id, monitor_id, datetime, temperature, status")
         print("   - sensor_id, time, heart_rate")
+        print("   - FlexibleSensorMapping (各センサータイプ別)")
         
     except Exception as e:
         print(f"❌ Error creating sample real format data: {e}")
+        import traceback
+        traceback.print_exc()
         db.rollback()
     finally:
         db.close()
 
+def create_sample_race_record_csvs(competition_ids):
+    """🆕 大会記録CSVファイルのサンプル生成（実データ形式対応）"""
+    print("📊 Creating sample race record CSV files...")
+    
+    # サンプルディレクトリ作成
+    sample_dir = "sample_race_records"
+    os.makedirs(sample_dir, exist_ok=True)
+    
+    try:
+        for comp_idx, comp_id in enumerate(competition_ids):
+            print(f"  Creating race records for competition: {comp_id}")
+            
+            # 大会ごとに複数のCSVファイルを生成（実データ形式対応）
+            categories = [
+                {
+                    "name": "sprint", 
+                    "participants": 10, 
+                    "bike_laps": ["BL1"],  # スプリント：BL1のみ
+                    "run_laps": ["RL1"]    # スプリント：RL1のみ
+                },
+                {
+                    "name": "standard", 
+                    "participants": 8, 
+                    "bike_laps": ["BL1", "BL2"],  # スタンダード：BL1, BL2
+                    "run_laps": ["RL1", "RL2"]    # スタンダード：RL1, RL2
+                },
+                {
+                    "name": "long", 
+                    "participants": 5, 
+                    "bike_laps": ["BL1", "BL2", "BL3"],  # ロング：BL1〜BL3
+                    "run_laps": ["RL1", "RL2", "RL3"]    # ロング：RL1〜RL3
+                }
+            ]
+            
+            base_time = datetime(2025, 6, 15, 8, 0, 0) + timedelta(days=comp_idx * 30)
+            bib_counter = 100 + comp_idx * 50
+            
+            for category in categories:
+                filename = f"{sample_dir}/race_records_{comp_id}_{category['name']}.csv"
+                
+                with open(filename, 'w', newline='', encoding='utf-8') as csvfile:
+                    # 🆕 実データ対応ヘッダー作成
+                    headers = [
+                        'No.',      # ゼッケン番号（統合キー）
+                        '氏名',     # 実データと同じ日本語列名
+                        '部門',
+                        'カテゴリー',
+                        '年齢',
+                        '性別',
+                        '登録地',
+                        'START',    # 🆕 実データ形式（SWIM_STARTではなく）
+                        'SF',       # 🆕 Swim Finish
+                        'BS',       # 🆕 Bike Start
+                    ]
+                    
+                    # 🆕 バイクLAP列追加（BL1, BL2...）
+                    headers.extend(category['bike_laps'])
+                    
+                    # 🆕 ラン関連列追加
+                    headers.append('RS')  # Run Start
+                    headers.extend(category['run_laps'])  # RL1, RL2...
+                    headers.append('RF')  # Run Finish
+                    
+                    # 🆕 実データにある追加列
+                    headers.extend(['総合記録', 'ステータス', '備考'])
+                    
+                    writer = csv.writer(csvfile)
+                    writer.writerow(headers)
+                    
+                    # 参加者データ生成
+                    for i in range(category['participants']):
+                        bib_number = str(bib_counter)
+                        bib_counter += 1
+                        
+                        # 現実的なレース時間生成
+                        swim_start = base_time + timedelta(minutes=random.randint(0, 10))
+                        swim_duration = timedelta(minutes=random.randint(20, 45))
+                        swim_finish = swim_start + swim_duration
+                        
+                        # トランジション1（2-5分）
+                        t1_duration = timedelta(minutes=random.randint(2, 5))
+                        bike_start = swim_finish + t1_duration
+                        bike_duration = timedelta(minutes=random.randint(50, 120))
+                        
+                        # バイクLAP時刻生成
+                        bike_lap_times = []
+                        current_bike_time = bike_start
+                        bike_lap_interval = bike_duration / len(category['bike_laps'])
+                        
+                        for lap_idx in range(len(category['bike_laps'])):
+                            current_bike_time += bike_lap_interval + timedelta(minutes=random.randint(-5, 5))
+                            bike_lap_times.append(current_bike_time.strftime('%Y-%m-%d %H:%M:%S'))
+                        
+                        bike_finish = current_bike_time  # 最後のバイクLAP時刻
+                        
+                        # トランジション2（2-5分）
+                        t2_duration = timedelta(minutes=random.randint(2, 5))
+                        run_start = bike_finish + t2_duration
+                        run_duration = timedelta(minutes=random.randint(30, 70))
+                        
+                        # ランLAP時刻生成
+                        run_lap_times = []
+                        current_run_time = run_start
+                        run_lap_interval = run_duration / len(category['run_laps'])
+                        
+                        for lap_idx in range(len(category['run_laps'])):
+                            current_run_time += run_lap_interval + timedelta(minutes=random.randint(-3, 3))
+                            run_lap_times.append(current_run_time.strftime('%Y-%m-%d %H:%M:%S'))
+                        
+                        run_finish = current_run_time  # 最後のランLAP時刻
+                        
+                        # 総合記録計算
+                        total_time = run_finish - swim_start
+                        total_record = str(total_time).split('.')[0]  # 秒以下切り捨て
+                        
+                        # 行データ作成（実データ形式）
+                        row = [
+                            bib_number,
+                            f"選手_{bib_number}",
+                            f"部門{random.choice(['A', 'B', 'C'])}",
+                            category['name'].upper(),
+                            random.randint(20, 60),
+                            random.choice(['男性', '女性']),
+                            random.choice(['東京都', '神奈川県', '千葉県', '埼玉県']),
+                            swim_start.strftime('%Y-%m-%d %H:%M:%S'),    # START
+                            swim_finish.strftime('%Y-%m-%d %H:%M:%S'),   # SF
+                            bike_start.strftime('%Y-%m-%d %H:%M:%S'),    # BS
+                        ]
+                        
+                        # バイクLAP時刻追加
+                        row.extend(bike_lap_times)
+                        
+                        # ラン関連時刻追加
+                        row.append(run_start.strftime('%Y-%m-%d %H:%M:%S'))  # RS
+                        row.extend(run_lap_times)  # RL1, RL2...
+                        row.append(run_finish.strftime('%Y-%m-%d %H:%M:%S'))  # RF
+                        
+                        # 追加情報
+                        row.extend([
+                            total_record,  # 総合記録
+                            '完走',        # ステータス
+                            ''             # 備考
+                        ])
+                        
+                        writer.writerow(row)
+                
+                print(f"    ✅ Created: {filename} ({category['participants']} records, "
+                      f"Bike LAPs: {len(category['bike_laps'])}, Run LAPs: {len(category['run_laps'])})")
+        
+        print(f"📊 Sample race record CSV files created in '{sample_dir}' directory")
+        print("🔍 Files can be used to test the race record upload functionality")
+        
+        # 使用方法の説明
+        print("\n" + "="*60)
+        print("📋 How to test race record upload:")
+        print("1. Start the backend server")
+        print("2. Login as admin")
+        print("3. Go to sensor upload page")
+        print("4. Select a competition")
+        print(f"5. Upload multiple CSV files from '{sample_dir}' directory")
+        print("6. Check the integration results")
+        print("="*60)
+        
+    except Exception as e:
+        print(f"❌ Error creating sample race record CSV files: {e}")
+        import traceback
+        traceback.print_exc()
+
 def main():
-    """メイン実行関数"""
-    print("🚀 Initializing Triathlon Database with Real Data Format Support...")
+    """メイン実行関数（完全版）"""
+    print("🚀 Initializing Triathlon Database with Complete Race Record Support...")
     print("=" * 80)
     
     # ステップ1: テーブル作成（修正版モデル）
@@ -291,43 +513,25 @@ def main():
         create_race_records(competition_ids)
         print()
         
-        # ステップ5: 🆕 実データ形式でサンプルデータ作成
+        # ステップ5: 実データ形式でサンプルデータ作成
         print("📊 Creating sample data with real formats...")
         create_sample_real_format_data(competition_ids)
         print()
+        
+        # ステップ6: 🆕 大会記録CSVファイル生成
+        print("📋 Creating sample race record CSV files...")
+        create_sample_race_record_csvs(competition_ids)
+        print()
     
     print("=" * 80)
-    print("🎉 Database initialization completed with real data format support!")
+    print("🎉 Database initialization completed with complete race record support!")
+    print("🆕 Race record CSV upload functionality is now ready for testing!")
     print()
-    print("📋 Summary:")
-    print(f"   • Competitions created: {len(competition_ids)}")
-    print("   • Users: 5 test users + 1 admin")
-    print("   • Real Format Models: halshare, e-Celcius, TCX support")
-    print("   • Batch Management: Upload history and deletion ready")
-    print("   • Sample data: Ready for testing with actual file formats")
-    print()
-    print("🔑 Login Information:")
-    print("   Admin:     username=admin,     password=admin123")
-    print("   Test User: username=testuser1, password=password123")
-    print()
-    print("🌐 Access URLs:")
-    print("   Backend API: http://localhost:8000")
-    print("   API Docs:    http://localhost:8000/docs")
-    print("   Frontend:    http://localhost:3000")
-    print()
-    print("🆕 New Features Ready:")
-    print("   • Real data format support:")
-    print("     - halshare: halshareWearerName, halshareId, datetime, temperature")
-    print("     - e-Celcius: capsule_id, monitor_id, datetime, temperature, status")  
-    print("     - TCX: sensor_id, time, heart_rate")
-    print("   • Batch upload management with file-based deletion")
-    print("   • Upload history tracking")
-    print("   • Error handling and reporting")
-    print()
-    print("🚀 Next Steps:")
-    print("   1. Add upload endpoints: app/routers/admin/upload.py")
-    print("   2. Add frontend upload page: SensorDataUpload.tsx")
-    print("   3. Test with actual data files")
+    print("📝 Next steps:")
+    print("1. uvicorn app.main:app --reload")
+    print("2. Go to http://localhost:8000/docs")
+    print("3. Test /admin/upload/race-records endpoint")
+    print("4. Use sample CSV files from sample_race_records/ directory")
 
 if __name__ == "__main__":
     main()
