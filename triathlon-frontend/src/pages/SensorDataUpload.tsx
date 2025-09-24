@@ -159,17 +159,31 @@ export const SensorDataUpload: React.FC = () => {
           'Authorization': `Bearer ${token}`,
         },
       });
+      
+      if (!response.ok) {
+        console.error('Failed to load competitions:', response.status, response.statusText);
+        return;
+      }
+      
       const data = await response.json();
-      setCompetitions(data.competitions || []);
+      console.log('Loaded competitions data:', data);
+      
+      // バックエンドのレスポンス形式に合わせて修正
+      // data が配列の場合はそのまま、オブジェクトの場合は competitions プロパティから取得
+      const competitionsArray = Array.isArray(data) ? data : (data.competitions || []);
+      
+      setCompetitions(competitionsArray);
     } catch (error) {
       console.error('Failed to load competitions:', error);
     }
   };
 
+
   const loadUploadBatches = async () => {
     try {
       const token = localStorage.getItem('access_token');
-      const response = await fetch('http://localhost:8000/admin/upload/batches', {
+      // 修正: /admin/upload/batches → /admin/batches
+      const response = await fetch('http://localhost:8000/admin/batches', {
         headers: {
           'Authorization': `Bearer ${token}`,
         },
@@ -183,6 +197,7 @@ export const SensorDataUpload: React.FC = () => {
       console.error('Failed to load upload batches:', error);
     }
   };
+
 
   // マッピング状況読み込み
   const loadMappingStatus = async () => {
@@ -449,7 +464,8 @@ export const SensorDataUpload: React.FC = () => {
 
     try {
       const token = localStorage.getItem('access_token');
-      const response = await fetch(`http://localhost:8000/admin/upload/batch/${batchId}`, {
+      // 修正: /admin/upload/batch/{batchId} → /admin/batches/{batchId}
+      const response = await fetch(`http://localhost:8000/admin/batches/${batchId}`, {
         method: 'DELETE',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -489,24 +505,6 @@ export const SensorDataUpload: React.FC = () => {
     }
   };
 
-  const loadRaceRecordStatus = async () => {
-    if (!selectedCompetition) return;
-    
-    try {
-      const response = await fetch(`/api/admin/race-records/status?competition_id=${selectedCompetition}`, {
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
-        }
-      });
-      
-      if (response.ok) {
-        const data = await response.json();
-        setRaceRecordStatus(data);
-      }
-    } catch (error) {
-      console.error('Race record status load error:', error);
-    }
-  };
 
   const resetRaceRecordFiles = () => {
     if (raceRecordInputRef.current) {
@@ -514,6 +512,28 @@ export const SensorDataUpload: React.FC = () => {
     }
     setRaceRecordFiles(null);
     setRaceRecordResults([]);
+  };
+
+  const loadRaceRecordStatus = async () => {
+    if (!selectedCompetition) return;
+    
+    try {
+      const token = localStorage.getItem('access_token'); // 修正: 'token' -> 'access_token'
+      const response = await fetch(`http://localhost:8000/admin/race-records/status?competition_id=${selectedCompetition}`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        setRaceRecordStatus(data);
+      } else {
+        console.error('Failed to load race record status:', response.status, response.statusText);
+      }
+    } catch (error) {
+      console.error('Race record status load error:', error);
+    }
   };
 
   const handleRaceRecordUpload = async () => {
@@ -538,10 +558,11 @@ export const SensorDataUpload: React.FC = () => {
         formData.append('files', file);
       });
 
-      const response = await fetch('/api/admin/upload/race-records', {
+      const token = localStorage.getItem('access_token'); // 修正: 'token' -> 'access_token'
+      const response = await fetch('http://localhost:8000/admin/upload/race-records', {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
+          'Authorization': `Bearer ${token}`,
         },
         body: formData
       });
@@ -889,6 +910,47 @@ return (
             <Card className="p-6 border-l-4 border-l-indigo-500">
               <h2 className="text-lg font-semibold mb-4">5. マッピングデータ</h2>
               <div className="space-y-4">
+                
+                {/* 🆕 拡張説明 */}
+                <div className="bg-indigo-50 border border-indigo-200 rounded-lg p-4">
+                  <h3 className="font-medium text-indigo-800 mb-2">📋 マッピングCSV構造（🆕 ゼッケン番号対応版）</h3>
+                  <div className="text-sm text-indigo-700 space-y-2">
+                    <div className="font-mono text-xs bg-white p-2 rounded border overflow-x-auto">
+                      user_id,race_number,skin_temp_sensor_id,core_temp_sensor_id,heart_rate_sensor_id,subject_name
+                    </div>
+                    <ul className="space-y-1">
+                      <li>• <strong>user_id</strong>: システム内のユーザーID（必須）</li>
+                      <li>• <strong>race_number</strong>: 🆕 大会記録の"No."（ゼッケン番号）</li>
+                      <li>• <strong>skin_temp_sensor_id</strong>: halshareセンサーID</li>
+                      <li>• <strong>core_temp_sensor_id</strong>: e-CelciusセンサーID</li>
+                      <li>• <strong>heart_rate_sensor_id</strong>: GarminセンサーID</li>
+                      <li>• <strong>subject_name</strong>: 被験者名（任意）</li>
+                    </ul>
+                  </div>
+                </div>
+
+                {/* サンプル例 */}
+                <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
+                  <h3 className="font-medium text-gray-800 mb-2">📝 サンプルデータ例</h3>
+                  <div className="text-xs font-mono bg-white p-3 rounded border overflow-x-auto">
+                    <div className="text-gray-600">user_id,race_number,skin_temp_sensor_id,core_temp_sensor_id,heart_rate_sensor_id,subject_name</div>
+                    <div>user001,100,11000002010B17,23.10.8E.81,GARMIN_001,田中太郎</div>
+                    <div>user002,101,11000002011B17,23.10.8E.82,GARMIN_002,佐藤花子</div>
+                    <div>user003,102,11000002012B17,23.10.8E.83,GARMIN_003,山田次郎</div>
+                  </div>
+                </div>
+
+                {/* 重要事項 */}
+                <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+                  <h3 className="font-medium text-yellow-800 mb-2">⚠️ 重要事項</h3>
+                  <ul className="text-sm text-yellow-700 space-y-1">
+                    <li>• <strong>race_number</strong>は大会記録CSVの"No."列と完全一致させる</li>
+                    <li>• 全ての列が必須ではありません（空欄可）</li>
+                    <li>• user_idは必須で、システムに登録済みのIDを使用</li>
+                    <li>• マッピング適用により、ゼッケン番号↔ユーザーID の紐づけが実行される</li>
+                  </ul>
+                </div>
+                
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
                     CSVファイル
@@ -900,11 +962,8 @@ return (
                     onChange={(e) => setMappingFile(e.target.files?.[0] || null)}
                     className="w-full p-2 border border-gray-300 rounded-md"
                   />
-                  <p className="text-sm text-gray-500 mt-1">
-                    形式: user_id, skin_temp_sensor_id, core_temp_sensor_id, heart_rate_sensor_id
-                  </p>
-                  <p className="text-sm text-blue-600 mt-1">
-                    センサーIDとユーザーを関連付けします
+                  <p className="text-sm text-indigo-600 mt-2">
+                    🆕 ゼッケン番号対応: センサーIDとユーザーID、さらに大会記録の紐づけを行います
                   </p>
                 </div>
                 
@@ -928,20 +987,35 @@ return (
                           <div className="text-sm">
                             処理: {mappingResult.processed} / スキップ: {mappingResult.skipped} / 合計: {mappingResult.total}
                           </div>
+                          {/* 🆕 ゼッケン番号マッピング結果表示 */}
+                          {mappingResult.race_number_mappings > 0 && (
+                            <div className="text-blue-600 text-sm">
+                              🏃 ゼッケン番号マッピング: {mappingResult.race_number_mappings}件
+                            </div>
+                          )}
                           {mappingResult.message && (
                             <div className="text-blue-600 text-sm">{mappingResult.message}</div>
-                          )}
-                          {mappingResult.errors && mappingResult.errors.length > 0 && (
-                            <div className="text-yellow-600 text-sm">
-                              エラー: {mappingResult.errors.slice(0, 3).join(', ')}
-                              {mappingResult.errors.length > 3 && '...'}
-                            </div>
                           )}
                         </div>
                       )}
                     </div>
                   </div>
                 )}
+
+                {/* マッピング適用ボタン */}
+                <div className="border-t pt-4">
+                  <Button 
+                    onClick={applyMapping}
+                    disabled={isLoading || !mappingStatus || mappingStatus.total_mappings === 0}
+                    className="w-full bg-green-600 hover:bg-green-700 text-white"
+                    size="lg"
+                  >
+                    {isLoading ? '適用中...' : '🚀 マッピング適用（センサー + ゼッケン番号）'}
+                  </Button>
+                  <p className="text-xs text-gray-500 mt-1 text-center">
+                    🆕 センサーデータと大会記録の両方にマッピングを適用します
+                  </p>
+                </div>
               </div>
             </Card>
 
@@ -1089,7 +1163,7 @@ return (
                 )}
               </div>
             </Card>
-            
+
           </>
         )}
 

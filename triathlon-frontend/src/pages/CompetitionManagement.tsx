@@ -34,8 +34,20 @@ export const CompetitionManagement: React.FC = () => {
           'Authorization': `Bearer ${token}`,
         },
       });
+      
+      if (!response.ok) {
+        console.error('Failed to load competitions:', response.status, response.statusText);
+        return;
+      }
+      
       const data = await response.json();
-      setCompetitions(data.competitions || []);
+      console.log('Loaded competitions data:', data);
+      
+      // バックエンドのレスポンス形式に合わせて修正
+      // data が配列の場合はそのまま、オブジェクトの場合は competitions プロパティから取得
+      const competitionsArray = Array.isArray(data) ? data : (data.competitions || []);
+      
+      setCompetitions(competitionsArray);
     } catch (error) {
       console.error('Failed to load competitions:', error);
     } finally {

@@ -913,7 +913,7 @@ async def get_upload_batches(
     if sensor_type:
         query = query.filter_by(sensor_type=sensor_type)
     
-    batches = query.order_by(desc(UploadBatch.created_at)).offset(skip).limit(limit).all()
+    batches = query.order_by(desc(UploadBatch.uploaded_at)).offset(skip).limit(limit).all()
     
     results = []
     for batch in batches:
@@ -1127,3 +1127,189 @@ async def get_unmapped_data_summary(
         error_message = f"未マッピングデータサマリー取得エラー: {str(e)}"
         print(f"❌ {error_message}")
         raise HTTPException(status_code=500, detail=error_message)
+
+
+@router.post("/mapping/apply")
+async def apply_sensor_mapping(
+    competition_id: str = Form(...),
+    db: Session = Depends(get_db),
+    current_admin: AdminUser = Depends(get_current_admin)
+):
+    """
+    🆕 拡張マッピング適用（センサーデータ + ゼッケン番号対応）
+    
+    処理内容:
+    1. センサーデータマッピング適用（既存機能）
+    2. 🆕 ゼッケン番号マッピング適用（大会記録）
+    """
+    
+    try:
+        # 大会存在チェック
+        competition = db.query(Competition).filter_by(competition_id=competition_id).first()
+        if not competition:
+            raise HTTPException(status_code=400, detail=f"大会ID '{competition_id}' が見つかりません")
+        
+        print(f"🚀 拡張マッピング適用開始: 大会 '{competition.name}' ({competition_id})")
+        
+        # === 1. 既存のセンサーデータマッピング適用 ===
+        sensor_results = await apply_existing_sensor_mapping(competition_id, db)
+        
+        # === 2. 🆕 ゼッケン番号マッピング適用 ===
+        race_results = await apply_race_number_mapping(competition_id, db)
+        
+        # 結果の統合
+        total_applied = sensor_results.get("applied_count", 0) + race_results.get("applied_race_records", 0)
+        
+        success_message = f"マッピング適用完了 - "
+        details = []
+        
+        if sensor_results.get("applied_count", 0) > 0:
+            details.append(f"センサーデータ: {sensor_results['applied_count']}件")
+        
+        if race_results.get("applied_race_records", 0) > 0:
+            details.append(f"大会記録: {race_results['applied_race_records']}件")
+        
+        success_message += ", ".join(details) if details else "適用対象なし"
+        
+        return {
+            "success": True,
+            "message": success_message,
+            "total_applied": total_applied,
+            "sensor_mapping_result": sensor_results,
+            "race_mapping_result": race_results,
+            "competition_id": competition_id,
+            "competition_name": competition.name
+        }
+        
+    except Exception as e:
+        db.rollback()
+        error_message = f"拡張マッピング適用エラー: {str(e)}"
+        print(f"❌ {error_message}")
+        raise HTTPException(status_code=500, detail=error_message)
+
+
+async def apply_existing_sensor_mapping(competition_id: str, db: Session) -> dict:
+    """既存のセンサーデータマッピング適用処理"""
+    
+    try:
+        applied_count = 0
+        
+        # 体表温データマッピング適用
+        skin_mappings = db.query(FlexibleSensorMapping).filter_by(
+            competition_id=competition_id,
+            sensor_type=SensorType.SKIN_TEMPERATURE,
+            is_active=True
+        ).all()
+        
+        for mapping in skin_mappings:
+            updated = db.query(SkinTemperatureData).filter_by(
+                halshare_id=mapping.sensor_id,
+                competition_id=competition_id,
+                mapped_user_id=None  # 未マッピングのもののみ
+            ).update({"mapped_user_id": mapping.user_id})
+            applied_count += updated
+            
+        print(f"✅ 体表温データマッピング適用: {len(skin_mappings)}マッピング処理")
+        
+        # カプセル体温データマッピング適用
+        core_mappings = db.query(FlexibleSensorMapping).filter_by(
+            competition_id=competition_id,
+            sensor_type=SensorType.CORE_TEMPERATURE,
+            is_active=True
+        ).all()
+        
+        for mapping in core_mappings:
+            updated = db.query(CoreTemperatureData).filter_by(
+                capsule_id=mapping.sensor_id,
+                competition_id=competition_id,
+                mapped_user_id=None
+            ).update({"mapped_user_id": mapping.user_id})
+            applied_count += updated
+            
+        print(f"✅ カプセル体温データマッピング適用: {len(core_mappings)}マッピング処理")
+        
+        # 心拍データマッピング適用
+        heart_mappings = db.query(FlexibleSensorMapping).filter_by(
+            competition_id=competition_id,
+            sensor_type=SensorType.HEART_RATE,
+            is_active=True
+        ).all()
+        
+        for mapping in heart_mappings:
+            updated = db.query(HeartRateData).filter_by(
+                sensor_id=mapping.sensor_id,
+                competition_id=competition_id,
+                mapped_user_id=None
+            ).update({"mapped_user_id": mapping.user_id})
+            applied_count += updated
+            
+        print(f"✅ 心拍データマッピング適用: {len(heart_mappings)}マッピング処理")
+        
+        return {
+            "success": True,
+            "applied_count": applied_count,
+            "skin_mappings": len(skin_mappings),
+            "core_mappings": len(core_mappings), 
+            "heart_mappings": len(heart_mappings)
+        }
+        
+    except Exception as e:
+        error_message = f"センサーマッピング適用エラー: {str(e)}"
+        print(f"❌ {error_message}")
+        return {"success": False, "applied_count": 0, "error": error_message}
+
+
+async def apply_race_number_mapping(competition_id: str, db: Session) -> dict:
+    """🆕 ゼッケン番号マッピング適用処理"""
+    
+    try:
+        from app.models.competition import RaceRecord
+        
+        # ゼッケン番号マッピング取得（device_type='race_number'で識別）
+        race_mappings = db.query(FlexibleSensorMapping).filter_by(
+            competition_id=competition_id,
+            device_type='race_number',  # 🆕 ゼッケン番号マッピング識別
+            is_active=True
+        ).all()
+        
+        print(f"🏃 ゼッケン番号マッピング数: {len(race_mappings)}")
+        
+        applied_count = 0
+        
+        for mapping in race_mappings:
+            race_number = mapping.race_number
+            user_id = mapping.user_id
+            
+            if not race_number:
+                continue
+                
+            # 対応する大会記録を検索・更新
+            updated = db.query(RaceRecord).filter_by(
+                competition_id=competition_id,
+                race_number=race_number,
+                user_id=None  # 未マッピングのもののみ
+            ).update({"user_id": user_id})
+            
+            applied_count += updated
+            
+            if updated > 0:
+                print(f"✅ 大会記録マッピング適用: ゼッケン{race_number} -> {user_id} ({updated}件)")
+        
+        db.commit()
+        
+        return {
+            "success": True,
+            "applied_race_records": applied_count,
+            "total_race_mappings": len(race_mappings),
+            "message": f"ゼッケン番号マッピングを{applied_count}件の大会記録に適用"
+        }
+        
+    except Exception as e:
+        db.rollback()
+        error_message = f"ゼッケン番号マッピング適用エラー: {str(e)}"
+        print(f"❌ {error_message}")
+        return {
+            "success": False, 
+            "applied_race_records": 0,
+            "error": error_message
+        }

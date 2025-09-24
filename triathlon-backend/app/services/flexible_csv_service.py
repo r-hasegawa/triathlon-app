@@ -231,71 +231,49 @@ class FlexibleCSVService:
             return None
 
     async def process_mapping_data(
-        self,
-        mapping_file: UploadFile,
-        competition_id: str,
-        db: Session,
+        self, 
+        mapping_file: UploadFile, 
+        competition_id: str, 
+        db: Session, 
         overwrite: bool = True
-    ) -> Dict[str, Any]:
-        """マッピングデータ処理（柔軟な列構成対応）"""
-        df = None  # 変数を最初に初期化
+    ) -> dict:
+        """
+        マッピングデータ処理（🆕 ゼッケン番号対応版）
+        
+        拡張CSV構造:
+        user_id,race_number,skin_temp_sensor_id,core_temp_sensor_id,heart_rate_sensor_id,subject_name
+        """
         
         try:
-            # 大会存在チェック
+            # 大会存在チェック  
             from app.models.competition import Competition
             competition = db.query(Competition).filter_by(competition_id=competition_id).first()
             if not competition:
                 raise HTTPException(status_code=400, detail=f"大会ID '{competition_id}' が見つかりません")
             
-            # 上書き処理：既存マッピングデータを削除
-            if overwrite and competition_id:
-                deleted_count = db.query(FlexibleSensorMapping).filter_by(competition_id=competition_id).delete()
-                db.commit()
-                print(f"既存マッピングデータ{deleted_count}件を削除しました")
+            # 既存マッピング削除（overwriteが有効な場合）
+            if overwrite:
+                from app.models.flexible_sensor_data import FlexibleSensorMapping
+                existing_count = db.query(FlexibleSensorMapping).filter_by(competition_id=competition_id).delete()
+                print(f"既存マッピング削除: {existing_count}件")
             
             # CSVファイル読み込み
+            content = await mapping_file.read()
+            encoding = self._detect_encoding(content)
+            
             try:
-                # ファイルポインタを先頭に戻す
-                await mapping_file.seek(0)
-                content = await mapping_file.read()
-            except Exception:
-                # seek失敗時は既存contentを使用
-                content = await mapping_file.read()
-            
-            if not content:
-                raise HTTPException(status_code=400, detail="CSVファイルが空です")
-            
-            # エンコーディング自動検出
-            decoded_content = None
-            detected_encoding = None
-            
-            for encoding in ['utf-8', 'shift_jis', 'cp932', 'iso-8859-1']:
-                try:
-                    decoded_content = content.decode(encoding)
-                    detected_encoding = encoding
-                    break
-                except UnicodeDecodeError:
-                    continue
-            
-            if decoded_content is None:
-                raise HTTPException(status_code=400, detail="CSVファイルの文字コードを認識できませんでした")
-            
-            print(f"マッピングデータ使用エンコーディング: {detected_encoding}")
-            
-            # CSVをDataFrameに読み込み
-            try:
-                df = pd.read_csv(io.StringIO(decoded_content))
+                df = pd.read_csv(BytesIO(content), encoding=encoding)
             except Exception as e:
-                raise HTTPException(status_code=400, detail=f"CSV読み込みエラー: {str(e)}")
+                raise HTTPException(status_code=400, detail=f"CSVファイル読み込みエラー: {str(e)}")
             
-            if df is None or df.empty:
-                raise HTTPException(status_code=400, detail="CSVファイルにデータがありません")
-            
-            print(f"マッピングデータ読み込み完了 - 行数: {len(df)}, 列数: {len(df.columns)}")
-            print(f"列名: {list(df.columns)}")
+            if df.empty:
+                raise HTTPException(status_code=400, detail="CSVファイルが空です")
             
             # 列名の空白除去
             df.columns = df.columns.str.strip()
+            
+            print(f"📊 CSV列: {list(df.columns)}")
+            print(f"📊 データ行数: {len(df)}")
             
             # 必須列チェック
             if 'user_id' not in df.columns:
@@ -309,7 +287,7 @@ class FlexibleCSVService:
                     detail=f"user_idに重複があります: {duplicate_users}"
                 )
             
-            # 認識するセンサー列（柔軟対応）
+            # 🆕 認識するセンサー列（ゼッケン番号対応版）
             recognized_sensor_columns = {
                 'skin_temp_sensor_id': SensorType.SKIN_TEMPERATURE,
                 'core_temp_sensor_id': SensorType.CORE_TEMPERATURE,
@@ -324,15 +302,20 @@ class FlexibleCSVService:
             available_sensor_columns = [col for col in df.columns if col in recognized_sensor_columns]
             print(f"CSVに存在する認識可能な列: {available_sensor_columns}")
             
-            if not available_sensor_columns:
+            # 🆕 race_number列の確認
+            has_race_number = 'race_number' in df.columns
+            print(f"ゼッケン番号列の存在: {has_race_number}")
+            
+            if not available_sensor_columns and not has_race_number:
                 raise HTTPException(
                     status_code=400, 
-                    detail=f"認識可能なセンサー列がありません。利用可能な列: {list(df.columns)}"
+                    detail=f"認識可能な列がありません。必要な列: user_id, race_number, sensor_id列のいずれか"
                 )
             
             processed = 0
             skipped = 0
             errors = []
+            race_number_mappings = 0  # 🆕 ゼッケン番号マッピング数
             
             for index, row in df.iterrows():
                 user_id = str(row.get('user_id', '')).strip()
@@ -355,8 +338,35 @@ class FlexibleCSVService:
                 
                 print(f"ユーザー '{user_id}' 存在確認")
                 
-                # 各センサーのマッピング処理
                 user_mappings_created = 0
+                
+                # 🆕 ゼッケン番号マッピング処理
+                if has_race_number:
+                    race_number = str(row.get('race_number', '')).strip()
+                    if race_number and race_number != 'nan':
+                        try:
+                            # ゼッケン番号マッピング作成
+                            race_mapping = FlexibleSensorMapping(
+                                user_id=user_id,
+                                competition_id=competition_id,
+                                sensor_id=race_number,  # race_numberをsensor_idとして保存
+                                sensor_type=SensorType.OTHER,  # 特別な種別
+                                race_number=race_number,  # 🆕 専用フィールド
+                                subject_name=str(row.get('subject_name', '')).strip() or None,
+                                device_type='race_number',  # 🆕 識別用
+                                is_active=True,
+                                created_at=datetime.now()
+                            )
+                            db.add(race_mapping)
+                            user_mappings_created += 1
+                            race_number_mappings += 1
+                            print(f"ゼッケン番号マッピング作成: {user_id} -> {race_number}")
+                            
+                        except Exception as e:
+                            errors.append(f"行{index+1}: ゼッケン番号マッピング作成エラー - {str(e)}")
+                            print(f"ゼッケン番号マッピング作成エラー: {str(e)}")
+                
+                # 既存のセンサーマッピング処理
                 for col_name, sensor_type in recognized_sensor_columns.items():
                     if col_name in df.columns:
                         sensor_id = str(row.get(col_name, '')).strip()
@@ -364,12 +374,13 @@ class FlexibleCSVService:
                         
                         if sensor_id and sensor_id != 'nan' and sensor_id != '':
                             try:
-                                # マッピングデータ作成
+                                # センサーマッピング作成
                                 mapping = FlexibleSensorMapping(
                                     user_id=user_id,
                                     competition_id=competition_id,
                                     sensor_id=sensor_id,
                                     sensor_type=sensor_type,
+                                    race_number=str(row.get('race_number', '')).strip() if has_race_number else None,  # 🆕
                                     subject_name=str(row.get('subject_name', '')).strip() or None,
                                     device_type=col_name,
                                     is_active=True,
@@ -377,13 +388,11 @@ class FlexibleCSVService:
                                 )
                                 db.add(mapping)
                                 user_mappings_created += 1
-                                print(f"マッピング作成: {user_id} -> {sensor_id} ({sensor_type.value})")
+                                print(f"センサーマッピング作成: {user_id} -> {sensor_id} ({sensor_type.value})")
                                 
                             except Exception as e:
-                                errors.append(f"行{index+1}, 列{col_name}: マッピング作成エラー - {str(e)}")
-                                print(f"マッピング作成エラー: {str(e)}")
-                    else:
-                        print(f"列 '{col_name}' はCSVに存在しません")
+                                errors.append(f"行{index+1}, 列{col_name}: センサーマッピング作成エラー - {str(e)}")
+                                print(f"センサーマッピング作成エラー: {str(e)}")
                 
                 print(f"ユーザー '{user_id}' で作成されたマッピング数: {user_mappings_created}")
                 
@@ -391,12 +400,18 @@ class FlexibleCSVService:
                     processed += 1
                 else:
                     skipped += 1
-                    errors.append(f"行{index+1}: ユーザー '{user_id}' に有効なセンサーマッピングなし")
+                    errors.append(f"行{index+1}: ユーザー '{user_id}' に有効なマッピングなし")
             
             db.commit()
             
-            # 結果メッセージ作成
-            message = f"マッピングデータを{processed}件のユーザーに対して処理しました"
+            # 🆕 結果メッセージ作成（ゼッケン番号対応）
+            message_parts = []
+            if race_number_mappings > 0:
+                message_parts.append(f"ゼッケン番号マッピング: {race_number_mappings}件")
+            if processed > 0:
+                message_parts.append(f"ユーザーマッピング: {processed}件")
+            
+            message = f"マッピングデータ処理完了 - " + ", ".join(message_parts)
             if skipped > 0:
                 message += f"（スキップ: {skipped}件）"
             
@@ -406,21 +421,91 @@ class FlexibleCSVService:
                 "total_records": len(df),
                 "processed_records": processed,
                 "skipped_records": skipped,
+                "race_number_mappings": race_number_mappings,  # 🆕
                 "errors": errors[:10] if errors else []  # 最初の10件のみ
             }
             
         except HTTPException:
-            # HTTPExceptionは再発生させる
             raise
         except Exception as e:
             db.rollback()
             error_message = f"マッピング処理エラー: {str(e)}"
             print(error_message)
             
-            # dfが定義されていない場合のフォールバック
-            total_records = len(df) if df is not None else 0
+            return {
+                "success": False,
+                "message": error_message,
+                "total_records": 0,
+                "processed_records": 0,
+                "skipped_records": 0,
+                "race_number_mappings": 0,
+                "errors": [error_message]
+            }
+
+    # === 🆕 マッピング適用処理の拡張 ===
+    async def apply_race_number_mapping(
+        self,
+        competition_id: str,
+        db: Session
+    ) -> dict:
+        """
+        🆕 ゼッケン番号マッピング適用
+        FlexibleSensorMappingのrace_number情報を使って、
+        RaceRecordのuser_idを設定する
+        """
+        
+        try:
+            from app.models.competition import RaceRecord
+            from app.models.flexible_sensor_data import FlexibleSensorMapping
             
-            raise HTTPException(status_code=500, detail=error_message)
+            # ゼッケン番号マッピング取得
+            race_mappings = db.query(FlexibleSensorMapping).filter_by(
+                competition_id=competition_id,
+                device_type='race_number',
+                is_active=True
+            ).all()
+            
+            print(f"🏃 ゼッケン番号マッピング数: {len(race_mappings)}")
+            
+            applied_count = 0
+            errors = []
+            
+            for mapping in race_mappings:
+                race_number = mapping.race_number
+                user_id = mapping.user_id
+                
+                # 対応する大会記録を検索・更新
+                race_records = db.query(RaceRecord).filter_by(
+                    competition_id=competition_id,
+                    race_number=race_number,
+                    user_id=None  # 未マッピングのもののみ
+                ).all()
+                
+                for record in race_records:
+                    record.user_id = user_id
+                    applied_count += 1
+                    print(f"✅ 大会記録マッピング適用: ゼッケン{race_number} -> {user_id}")
+            
+            db.commit()
+            
+            return {
+                "success": True,
+                "message": f"ゼッケン番号マッピングを{applied_count}件の大会記録に適用しました",
+                "applied_race_records": applied_count,
+                "total_mappings": len(race_mappings)
+            }
+            
+        except Exception as e:
+            db.rollback()
+            error_message = f"ゼッケン番号マッピング適用エラー: {str(e)}"
+            print(f"❌ {error_message}")
+            
+            return {
+                "success": False, 
+                "message": error_message,
+                "applied_race_records": 0,
+                "errors": [error_message]
+            }
 
     async def process_wbgt_data(
         self,

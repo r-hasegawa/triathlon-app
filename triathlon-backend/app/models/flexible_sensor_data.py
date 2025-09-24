@@ -223,6 +223,9 @@ class FlexibleSensorMapping(Base):
     user_id = Column(String(50), ForeignKey("users.user_id"), nullable=False, index=True)
     competition_id = Column(String(50), ForeignKey("competitions.competition_id"), nullable=True, index=True)
     
+    # 🆕 ゼッケン番号カラム追加
+    race_number = Column(String(20), nullable=True, index=True)
+
     # マッピング詳細
     subject_name = Column(String(255), nullable=True)
     device_type = Column(String(100), nullable=True)
