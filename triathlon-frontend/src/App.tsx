@@ -6,6 +6,7 @@ import { Dashboard } from '@/pages/Dashboard';
 import { DataDetail } from '@/pages/DataDetail';
 import { CompetitionManagement } from '@/pages/CompetitionManagement';
 import { UserManagement } from '@/pages/UserManagement';
+import { UserDetail } from '@/pages/UserDetail'; // 新しいページを追加
 import { SensorDataUpload } from '@/pages/SensorDataUpload';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import { ErrorBoundary } from '@/components/ui/ErrorBoundary';
@@ -94,6 +95,16 @@ const AppRoutes: React.FC = () => {
             }
           />
 
+          {/* ユーザー詳細ページ（管理者が他のユーザーの詳細を見る） */}
+          <Route
+            path="/admin/users/:userId"
+            element={
+              <AdminRoute>
+                <UserDetail />
+              </AdminRoute>
+            }
+          />
+
           <Route 
             path="/admin/competitions" 
             element={
@@ -103,7 +114,7 @@ const AppRoutes: React.FC = () => {
             }
           />
 
-          {/* 🆕 実データ対応アップロード画面（メイン機能） */}
+          {/* 実データ対応アップロード画面 */}
           <Route
             path="/admin/upload" 
             element={

@@ -11,6 +11,8 @@ import pandas as pd
 import xml.etree.ElementTree as ET
 import io
 import chardet
+import secrets
+import string
 
 from app.database import get_db
 from app.models.user import User, AdminUser
@@ -44,6 +46,20 @@ def detect_encoding(content: bytes) -> str:
         return 'utf-8'
     
     return encoding
+
+# ===== ユーザー管理用のユーティリティ関数 =====
+
+def generate_user_id() -> str:
+    """ユニークなユーザーIDを生成"""
+    timestamp = datetime.now().strftime("%Y%m%d")
+    random_suffix = ''.join(secrets.choice(string.digits) for _ in range(4))
+    return f"user_{timestamp}_{random_suffix}"
+
+def generate_password() -> str:
+    """安全なパスワードを生成（8文字、英数字混合）"""
+    characters = string.ascii_letters + string.digits
+    return ''.join(secrets.choice(characters) for _ in range(8))
+
 
 # ===== システム統計 =====
 
@@ -1663,4 +1679,393 @@ async def apply_race_number_mapping(competition_id: str, db: Session) -> dict:
             "applied_race_records": 0,
             "error": error_message
         }
+
+# ===== 新しいユーザー管理エンドポイント =====
+
+@router.post("/users/bulk-create")
+async def bulk_create_users(
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    current_admin: AdminUser = Depends(get_current_admin)
+):
+    """CSVファイルからユーザーを一括作成（仕様書1.1対応）"""
+    
+    if not file.filename.endswith('.csv'):
+        raise HTTPException(
+            status_code=400, 
+            detail="CSVファイルのみサポートされています"
+        )
+    
+    try:
+        # CSVファイル読み込み
+        content = await file.read()
+        encoding = detect_encoding(content)
+        
+        try:
+            df = pd.read_csv(io.BytesIO(content), encoding=encoding, header=None)
+        except UnicodeDecodeError:
+            # フォールバック: UTF-8とShift-JISを試す
+            try:
+                df = pd.read_csv(io.BytesIO(content), encoding='utf-8', header=None)
+            except Exception:
+                df = pd.read_csv(io.BytesIO(content), encoding='shift_jis', header=None)
+        
+        # 列数チェック（氏名、メールアドレスの2列）
+        if df.shape[1] < 2:
+            raise HTTPException(
+                status_code=400,
+                detail="CSVファイルは2列（氏名、メールアドレス）が必要です"
+            )
+        
+        # 列名を設定
+        df.columns = ['name', 'email'] + [f'col_{i}' for i in range(2, df.shape[1])]
+        
+        created_users = []
+        errors = []
+        
+        for index, row in df.iterrows():
+            try:
+                name = str(row['name']).strip()
+                email = str(row['email']).strip()
+                
+                # 入力値検証
+                if pd.isna(row['name']) or not name or name == 'nan':
+                    errors.append({
+                        "row": index + 1,
+                        "error": "氏名が空です"
+                    })
+                    continue
+                
+                if pd.isna(row['email']) or not email or email == 'nan':
+                    errors.append({
+                        "row": index + 1,
+                        "error": "メールアドレスが空です"
+                    })
+                    continue
+                
+                # 簡単なメールアドレス形式チェック
+                if '@' not in email or '.' not in email.split('@')[-1]:
+                    errors.append({
+                        "row": index + 1,
+                        "error": f"無効なメールアドレス形式: {email}"
+                    })
+                    continue
+                
+                # 重複チェック（既存ユーザー）
+                existing_user = db.query(User).filter(
+                    (User.email == email)
+                ).first()
+                
+                if existing_user:
+                    errors.append({
+                        "row": index + 1,
+                        "error": f"メールアドレスが既に登録されています: {email}"
+                    })
+                    continue
+                
+                # ユニークなuser_idを生成（重複チェック）
+                max_attempts = 10
+                user_id = None
+                for _ in range(max_attempts):
+                    candidate_id = generate_user_id()
+                    if not db.query(User).filter_by(user_id=candidate_id).first():
+                        user_id = candidate_id
+                        break
+                
+                if not user_id:
+                    errors.append({
+                        "row": index + 1,
+                        "error": "ユニークなユーザーIDを生成できませんでした"
+                    })
+                    continue
+                
+                # パスワード生成
+                password = generate_password()
+                
+                # ユーザー作成
+                new_user = User(
+                    user_id=user_id,
+                    username=user_id,  # usernameはuser_idと同じに設定
+                    full_name=name,
+                    email=email,
+                    hashed_password=get_password_hash(password),
+                    is_active=True,
+                    created_at=datetime.utcnow()
+                )
+                
+                db.add(new_user)
+                db.flush()  # IDを取得するために一時的にコミット
+                
+                created_users.append({
+                    "name": name,
+                    "email": email,
+                    "user_id": user_id,
+                    "password": password
+                })
+                
+            except Exception as e:
+                errors.append({
+                    "row": index + 1,
+                    "error": f"処理エラー: {str(e)}"
+                })
+        
+        # 最終コミット
+        db.commit()
+        
+        return {
+            "message": f"{len(created_users)}人のユーザーを作成しました",
+            "created_users": created_users,
+            "errors": errors,
+            "summary": {
+                "total_rows": len(df),
+                "created": len(created_users),
+                "failed": len(errors)
+            }
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()  # エラー時はロールバック
+        raise HTTPException(
+            status_code=500,
+            detail=f"CSV処理エラー: {str(e)}"
+        )
+
+@router.delete("/users/{user_id}")
+async def delete_user(
+    user_id: str,
+    db: Session = Depends(get_db),
+    current_admin: AdminUser = Depends(get_current_admin)
+):
+    """ユーザーを削除（仕様書5.1対応）"""
+    
+    # ユーザー存在チェック
+    user = db.query(User).filter_by(user_id=user_id).first()
+    if not user:
+        raise HTTPException(
+            status_code=404,
+            detail="ユーザーが見つかりません"
+        )
+    
+    try:
+        # 関連データの確認
+        sensor_data_count = (
+            db.query(SkinTemperatureData).filter_by(mapped_user_id=user_id).count() +
+            db.query(CoreTemperatureData).filter_by(mapped_user_id=user_id).count() +
+            db.query(HeartRateData).filter_by(mapped_user_id=user_id).count()
+        )
+        
+        race_records_count = db.query(RaceRecord).filter_by(user_id=user_id).count()
+        mapping_count = db.query(FlexibleSensorMapping).filter_by(user_id=user_id).count()
+        
+        # 関連データを削除
+        if sensor_data_count > 0:
+            db.query(SkinTemperatureData).filter_by(mapped_user_id=user_id).delete()
+            db.query(CoreTemperatureData).filter_by(mapped_user_id=user_id).delete()
+            db.query(HeartRateData).filter_by(mapped_user_id=user_id).delete()
+        
+        if race_records_count > 0:
+            db.query(RaceRecord).filter_by(user_id=user_id).delete()
+        
+        if mapping_count > 0:
+            db.query(FlexibleSensorMapping).filter_by(user_id=user_id).delete()
+        
+        # ユーザー削除
+        user_name = user.full_name or user.username
+        db.delete(user)
+        db.commit()
+        
+        return {
+            "message": f"ユーザー '{user_name}' (ID: {user_id}) を削除しました",
+            "deleted_data": {
+                "sensor_data": sensor_data_count,
+                "race_records": race_records_count,
+                "mappings": mapping_count
+            }
+        }
+        
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail=f"ユーザー削除エラー: {str(e)}"
+        )
+
+@router.post("/users/{user_id}/reset-password")
+async def reset_user_password(
+    user_id: str,
+    db: Session = Depends(get_db),
+    current_admin: AdminUser = Depends(get_current_admin)
+):
+    """ユーザーのパスワードをリセット（仕様書5.1対応）"""
+    
+    # ユーザー存在チェック
+    user = db.query(User).filter_by(user_id=user_id).first()
+    if not user:
+        raise HTTPException(
+            status_code=404,
+            detail="ユーザーが見つかりません"
+        )
+    
+    try:
+        # 新しいパスワードを生成
+        new_password = generate_password()
+        
+        # パスワードハッシュを更新
+        user.hashed_password = get_password_hash(new_password)
+        
+        # updated_atが存在する場合は更新
+        if hasattr(user, 'updated_at'):
+            user.updated_at = datetime.utcnow()
+        
+        db.commit()
+        
+        return {
+            "message": f"ユーザー '{user.full_name or user.username}' のパスワードをリセットしました",
+            "user_id": user_id,
+            "new_password": new_password,
+            "note": "新しいパスワードをユーザーに安全に伝達してください"
+        }
+        
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail=f"パスワードリセットエラー: {str(e)}"
+        )
+
+@router.get("/users/{user_id}/data-summary")
+async def get_user_data_summary(
+    user_id: str,
+    db: Session = Depends(get_db),
+    current_admin: AdminUser = Depends(get_current_admin)
+):
+    """ユーザーのデータサマリー取得（詳細画面用）"""
+    
+    # ユーザー存在チェック
+    user = db.query(User).filter_by(user_id=user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="ユーザーが見つかりません")
+    
+    try:
+        # センサーデータ統計
+        skin_temp_count = db.query(SkinTemperatureData).filter_by(mapped_user_id=user_id).count()
+        core_temp_count = db.query(CoreTemperatureData).filter_by(mapped_user_id=user_id).count()
+        heart_rate_count = db.query(HeartRateData).filter_by(mapped_user_id=user_id).count()
+        
+        # 参加大会一覧
+        race_records = db.query(RaceRecord).filter_by(user_id=user_id).all()
+        competitions_data = []
+        
+        for record in race_records:
+            competition = db.query(Competition).filter_by(
+                competition_id=record.competition_id
+            ).first()
+            
+            if competition:
+                competitions_data.append({
+                    "competition_id": competition.competition_id,
+                    "name": competition.name,
+                    "date": competition.date.isoformat() if competition.date else None,
+                    "status": "completed" if record.run_finish_time else "incomplete"
+                })
+        
+        return {
+            "user_id": user_id,
+            "skin_temperature_records": skin_temp_count,
+            "core_temperature_records": core_temp_count,
+            "heart_rate_records": heart_rate_count,
+            "total_competitions": len(competitions_data),
+            "competitions": competitions_data
+        }
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"データサマリー取得エラー: {str(e)}"
+        )
+
+@router.get("/users/{user_id}/sensor-data")
+async def get_user_sensor_data(
+    user_id: str,
+    competition_id: Optional[str] = Query(None),
+    db: Session = Depends(get_db),
+    current_admin: AdminUser = Depends(get_current_admin)
+):
+    """ユーザーのセンサーデータ詳細取得（表形式表示用）"""
+    
+    # ユーザー存在チェック
+    user = db.query(User).filter_by(user_id=user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="ユーザーが見つかりません")
+    
+    try:
+        sensor_data = []
+        
+        # 体表温データ
+        skin_temp_query = db.query(SkinTemperatureData).filter_by(mapped_user_id=user_id)
+        if competition_id:
+            skin_temp_query = skin_temp_query.filter_by(competition_id=competition_id)
+        
+        skin_temp_records = skin_temp_query.all()
+        if skin_temp_records:
+            latest_record = max(skin_temp_records, key=lambda x: x.timestamp)
+            earliest_record = min(skin_temp_records, key=lambda x: x.timestamp)
+            
+            sensor_data.append({
+                "sensor_type": "体表温センサー",
+                "sensor_id": skin_temp_records[0].halshare_id,
+                "record_count": len(skin_temp_records),
+                "latest_record": latest_record.timestamp.isoformat(),
+                "data_range": f"{earliest_record.timestamp.strftime('%H:%M')} - {latest_record.timestamp.strftime('%H:%M')}"
+            })
+        
+        # カプセル体温データ
+        core_temp_query = db.query(CoreTemperatureData).filter_by(mapped_user_id=user_id)
+        if competition_id:
+            core_temp_query = core_temp_query.filter_by(competition_id=competition_id)
+        
+        core_temp_records = core_temp_query.all()
+        if core_temp_records:
+            latest_record = max(core_temp_records, key=lambda x: x.timestamp)
+            earliest_record = min(core_temp_records, key=lambda x: x.timestamp)
+            
+            sensor_data.append({
+                "sensor_type": "カプセル体温センサー",
+                "sensor_id": f"{core_temp_records[0].capsule_id}@{core_temp_records[0].monitor_id}",
+                "record_count": len(core_temp_records),
+                "latest_record": latest_record.timestamp.isoformat(),
+                "data_range": f"{earliest_record.timestamp.strftime('%H:%M')} - {latest_record.timestamp.strftime('%H:%M')}"
+            })
+        
+        # 心拍データ
+        heart_rate_query = db.query(HeartRateData).filter_by(mapped_user_id=user_id)
+        if competition_id:
+            heart_rate_query = heart_rate_query.filter_by(competition_id=competition_id)
+        
+        heart_rate_records = heart_rate_query.all()
+        if heart_rate_records:
+            latest_record = max(heart_rate_records, key=lambda x: x.timestamp)
+            earliest_record = min(heart_rate_records, key=lambda x: x.timestamp)
+            
+            sensor_data.append({
+                "sensor_type": "心拍センサー",
+                "sensor_id": heart_rate_records[0].sensor_id,
+                "record_count": len(heart_rate_records),
+                "latest_record": latest_record.timestamp.isoformat(),
+                "data_range": f"{earliest_record.timestamp.strftime('%H:%M')} - {latest_record.timestamp.strftime('%H:%M')}"
+            })
+        
+        return {
+            "user_id": user_id,
+            "competition_id": competition_id,
+            "sensor_data": sensor_data
+        }
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"センサーデータ取得エラー: {str(e)}"
+        )
 

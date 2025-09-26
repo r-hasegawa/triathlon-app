@@ -498,6 +498,35 @@ body {
   font-size: var(--font-size-base);
 }
 
+/* 既存の Button スタイルに追加 */
+.btn-secondary {
+  background-color: var(--color-gray-100);
+  color: var(--color-gray-700);
+  border-color: var(--color-gray-300);
+}
+
+.btn-secondary:hover:not(:disabled) {
+  background-color: var(--color-gray-200);
+  border-color: var(--color-gray-400);
+}
+
+/* 新しく追加: danger バリアント */
+.btn-danger {
+  background-color: var(--color-red-600);
+  color: white;
+  border-color: var(--color-red-600);
+}
+
+.btn-danger:hover:not(:disabled) {
+  background-color: var(--color-red-700);
+  border-color: var(--color-red-700);
+}
+
+.btn-danger:focus-visible {
+  outline: 2px solid var(--color-red-600);
+  outline-offset: 2px;
+}
+
 /* Cards */
 .card {
   background-color: white;
