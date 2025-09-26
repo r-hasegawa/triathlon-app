@@ -32,51 +32,6 @@ class UploadStatus(str, enum.Enum):
     FAILED = "failed"
     PARTIAL = "partial"
 
-# === 生センサーデータテーブル（マッピング不要） ===
-
-class RawSensorData(Base):
-    """生センサーデータ - マッピングなしでも保存"""
-    __tablename__ = "raw_sensor_data"
-    
-    id = Column(Integer, primary_key=True, index=True)
-    sensor_id = Column(String(100), nullable=False, index=True)
-    sensor_type = Column(Enum(SensorType), nullable=False, index=True)
-    competition_id = Column(String(50), ForeignKey("competitions.competition_id"), nullable=False, index=True)
-        
-    # データ内容
-    timestamp = Column(DateTime, nullable=False, index=True)
-    data_values = Column(Text, nullable=False)  # JSON形式でセンサー値を保存
-    raw_data = Column(Text, nullable=True)      # 元のCSV行データ
-    
-    # マッピング状態
-    mapping_status = Column(Enum(SensorDataStatus), default=SensorDataStatus.UNMAPPED, index=True)
-    mapped_user_id = Column(String(50), ForeignKey("users.user_id"), nullable=True, index=True)
-    mapped_at = Column(DateTime, nullable=True)
-    
-    # メタデータ
-    upload_batch_id = Column(String(100), nullable=True, index=True)
-    data_source = Column(String(100), nullable=True)
-    created_at = Column(DateTime, server_default=func.now())
-    
-    # リレーション
-    competition = relationship("Competition")
-    mapped_user = relationship("User", foreign_keys=[mapped_user_id])
-    
-    # インデックス
-    __table_args__ = (
-        Index('idx_sensor_type_status', 'sensor_type', 'mapping_status'),
-        Index('idx_competition_sensor_timestamp', 'competition_id', 'sensor_id', 'timestamp'),
-        Index('idx_unmapped_data', 'sensor_type', 'mapping_status', 'competition_id'),
-    )
-    
-    def get_data_as_dict(self):
-        """データ値をPython辞書として取得"""
-        return json.loads(self.data_values) if self.data_values else {}
-    
-    def set_data_from_dict(self, data_dict):
-        """Python辞書からデータ値を設定"""
-        self.data_values = json.dumps(data_dict)
-
 # === 実際のデータ形式に対応した専用テーブル ===
 
 class SkinTemperatureData(Base):
@@ -248,28 +203,3 @@ class FlexibleSensorMapping(Base):
         Index('idx_sensor_mapping_unique', 'sensor_id', 'sensor_type', 'competition_id', unique=True),
         Index('idx_user_sensor_type', 'user_id', 'sensor_type', 'competition_id'),
     )
-
-# === データ統合ビュー（既存互換性のため） ===
-
-class SensorDataView(Base):
-    """既存システムとの互換性のための統合ビュー"""
-    __tablename__ = "sensor_data_view"
-    
-    id = Column(Integer, primary_key=True, index=True)
-    sensor_id = Column(String(100), nullable=False, index=True)
-    sensor_type = Column(Enum(SensorType), nullable=False, index=True)
-    user_id = Column(String(50), ForeignKey("users.user_id"), nullable=True, index=True)
-    competition_id = Column(String(50), ForeignKey("competitions.competition_id"), nullable=True, index=True)
-    timestamp = Column(DateTime, nullable=False, index=True)
-    
-    # 共通データ項目
-    primary_value = Column(Float, nullable=True)    # メイン値（温度 or 心拍数）
-    secondary_value = Column(Float, nullable=True)  # サブ値
-    raw_data_id = Column(Integer, ForeignKey("raw_sensor_data.id"), nullable=False)
-    
-    created_at = Column(DateTime, server_default=func.now())
-    
-    # リレーション
-    raw_data = relationship("RawSensorData")
-    user = relationship("User", foreign_keys=[user_id])
-    competition = relationship("Competition")

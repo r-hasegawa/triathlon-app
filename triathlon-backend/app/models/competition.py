@@ -172,6 +172,3 @@ class RaceRecord(Base):
     
     def __repr__(self):
         return f"<RaceRecord(race_number='{self.race_number}', competition='{self.competition_id}', user='{self.user_id}')>"
-
-# 🚫 WBGTDataクラスは削除（flexible_sensor_data.pyで定義）
-# class WBGTData(Base): ...
