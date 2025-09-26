@@ -15,9 +15,9 @@ from sqlalchemy.orm import sessionmaker
 from app.models.user import User, AdminUser
 from app.models.competition import Competition, RaceRecord
 from app.models.flexible_sensor_data import (
-    RawSensorData, FlexibleSensorMapping,
+    FlexibleSensorMapping,
     SkinTemperatureData, CoreTemperatureData, 
-    HeartRateData, WBGTData, SensorDataView
+    HeartRateData, WBGTData
 )
 
 def drop_all_tables():

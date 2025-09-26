@@ -7,7 +7,7 @@ from datetime import datetime
 from app.utils.dependencies import get_current_user, get_db
 from app.models.user import User
 from app.models.flexible_sensor_data import (
-    RawSensorData, FlexibleSensorMapping, SensorType, SensorDataStatus
+    FlexibleSensorMapping, SensorType, SensorDataStatus
 )
 from app.models.competition import Competition, RaceRecord
 from pydantic import BaseModel

@@ -14,7 +14,6 @@ from .flexible_sensor_data import (
     UploadStatus,
     
     # Core tables
-    RawSensorData,
     FlexibleSensorMapping,
     
     # 🆕 実データ対応テーブル
@@ -25,9 +24,6 @@ from .flexible_sensor_data import (
     
     # Environment data
     WBGTData,
-    
-    # View
-    SensorDataView
 )
 
 __all__ = [

@@ -15,7 +15,7 @@ from datetime import datetime
 from app.models.competition import Competition, RaceRecord
 from app.models.user import AdminUser
 from app.models.flexible_sensor_data import (
-    RawSensorData, FlexibleSensorMapping,
+    FlexibleSensorMapping,
     SkinTemperatureData, CoreTemperatureData, 
     HeartRateData, WBGTData, SensorDataStatus, SensorType,
     UploadBatch, SensorType, UploadStatus
@@ -45,52 +45,6 @@ class FlexibleCSVService:
         else:
             # デフォルトはUTF-8
             return 'utf-8'
-    
-    async def process_sensor_data_only(
-        self,
-        sensor_file: UploadFile,
-        sensor_type: SensorType,
-        competition_id: str,
-        db: Session
-    ) -> UploadResponse:
-        """センサーデータのみ処理"""
-        try:
-            # 大会存在チェック追加
-            from app.models import Competition
-            competition = db.query(Competition).filter_by(competition_id=competition_id).first()
-            if not competition:
-                raise HTTPException(status_code=400, detail=f"大会ID '{competition_id}' が見つかりません")
-            
-            content = await sensor_file.read()
-            df = pd.read_csv(io.BytesIO(content))
-            
-            processed = 0
-            
-            for _, row in df.iterrows():
-                raw_data = RawSensorData(
-                    sensor_type=sensor_type,
-                    sensor_id=str(row.get('sensor_id', '')),
-                    timestamp=pd.to_datetime(row.get('timestamp')),
-                    data_values=str(row.get('value', 0)),
-                    competition_id=competition_id,
-                    mapping_status=SensorDataStatus.UNMAPPED,
-                    raw_data=row.to_json()
-                )
-                db.add(raw_data)
-                processed += 1
-            
-            db.commit()
-            
-            return UploadResponse(
-                success=True,
-                message=f"{sensor_type.value}データを{processed}件処理しました（大会: {competition.name}）",
-                total_records=len(df),
-                processed_records=processed
-            )
-            
-        except Exception as e:
-            db.rollback()
-            raise HTTPException(status_code=400, detail=f"データ処理エラー: {str(e)}")
 
     async def process_wbgt_data(
         self,
@@ -635,48 +589,6 @@ class FlexibleCSVService:
             db.rollback()
             print(f"WBGT処理エラー: {str(e)}")
             raise HTTPException(status_code=500, detail=f"WBGT処理エラー: {str(e)}")
-
-    def get_data_summary(
-        self,
-        db: Session,
-        competition_id: Optional[str] = None
-    ) -> DataSummaryResponse:
-        """データサマリー取得"""
-        
-        # センサーデータ統計
-        query = db.query(RawSensorData)
-        if competition_id:
-            query = query.filter_by(competition_id=competition_id)
-        
-        total_records = query.count()
-        mapped_records = query.filter(RawSensorData.mapping_status == SensorDataStatus.MAPPED).count()
-        unmapped_records = query.filter(RawSensorData.mapping_status == SensorDataStatus.UNMAPPED).count()
-        
-        # センサータイプ別統計
-        sensor_counts = {}
-        for sensor_type in SensorType:
-            count = query.filter(RawSensorData.sensor_type == sensor_type).count()
-            sensor_counts[sensor_type.value] = count
-        
-        wbgt_count = db.query(WBGTData)
-        if competition_id:
-            wbgt_count = wbgt_count.filter_by(competition_id=competition_id)
-        wbgt_count = wbgt_count.count()
-        
-        mapping_count = db.query(FlexibleSensorMapping)
-        if competition_id:
-            mapping_count = mapping_count.filter_by(competition_id=competition_id)
-        mapping_count = mapping_count.count()
-        
-        return DataSummaryResponse(
-            total_sensor_records=total_records,
-            mapped_records=mapped_records,
-            unmapped_records=unmapped_records,
-            sensor_type_counts=sensor_counts,
-            wbgt_records=wbgt_count,
-            mapping_records=mapping_count,
-            competition_id=competition_id
-        )
 
     def get_mapping_status(
         self,
