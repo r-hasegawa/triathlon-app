@@ -7,55 +7,6 @@ from datetime import datetime
 from typing import Optional, List
 from app.models.flexible_sensor_data import SensorType, UploadStatus
 
-# === 既存のスキーマ（互換性維持） ===
-class SensorDataBase(BaseModel):
-    sensor_id: str
-    sensor_type: SensorType
-    timestamp: datetime
-    value: float
-
-class SensorDataCreate(SensorDataBase):
-    competition_id: str
-
-class SensorDataResponse(SensorDataBase):
-    id: int
-    user_id: Optional[str] = None
-    competition_id: str
-    created_at: datetime
-    
-    class Config:
-        from_attributes = True
-
-class SensorMappingBase(BaseModel):
-    sensor_id: str
-    sensor_type: SensorType
-    user_id: str
-
-class SensorMappingCreate(SensorMappingBase):
-    competition_id: str
-
-class SensorMappingResponse(SensorMappingBase):
-    id: int
-    competition_id: str
-    created_at: datetime
-    
-    class Config:
-        from_attributes = True
-
-class SensorDataStats(BaseModel):
-    total_records: int
-    mapped_records: int
-    unmapped_records: int
-    unique_sensors: int
-    date_range: dict
-
-class SensorDataPaginated(BaseModel):
-    data: List[SensorDataResponse]
-    total: int
-    page: int
-    limit: int
-    has_next: bool
-
 # === 🆕 実データ対応スキーマ ===
 
 class UploadBatchResponse(BaseModel):
