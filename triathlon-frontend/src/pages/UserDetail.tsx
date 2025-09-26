@@ -1,3 +1,5 @@
+// src/pages/UserDetail.tsx - 完全修正版
+
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Layout } from '@/components/layout/Layout';
@@ -5,26 +7,19 @@ import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 
-interface UserDetail {
+// 🔄 実際のAPIレスポンス構造に合わせて修正
+interface UserDataSummary {
   user_id: string;
-  name: string;
-  email: string;
-  created_at: string;
-}
-
-interface Competition {
-  competition_id: string;
-  name: string;
-  date: string;
-  status: string;
-}
-
-interface UserData {
   skin_temperature_records: number;
   core_temperature_records: number;
   heart_rate_records: number;
-  competitions: Competition[];
   total_competitions: number;
+  competitions: Array<{
+    competition_id: string;
+    name: string;
+    date: string;
+    status: string;
+  }>;
 }
 
 interface SensorData {
@@ -39,8 +34,7 @@ export const UserDetail: React.FC = () => {
   const { userId } = useParams<{ userId: string }>();
   const navigate = useNavigate();
   
-  const [user, setUser] = useState<UserDetail | null>(null);
-  const [userData, setUserData] = useState<UserData | null>(null);
+  const [userDataSummary, setUserDataSummary] = useState<UserDataSummary | null>(null);
   const [selectedCompetition, setSelectedCompetition] = useState<string>('');
   const [sensorData, setSensorData] = useState<SensorData[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -48,8 +42,7 @@ export const UserDetail: React.FC = () => {
 
   useEffect(() => {
     if (userId) {
-      loadUserDetail();
-      loadUserData();
+      loadUserDataSummary();
     }
   }, [userId]);
 
@@ -59,26 +52,7 @@ export const UserDetail: React.FC = () => {
     }
   }, [selectedCompetition]);
 
-  const loadUserDetail = async () => {
-    try {
-      const token = localStorage.getItem('access_token');
-      const response = await fetch(`http://localhost:8000/admin/users/${userId}`, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-        },
-      });
-
-      if (!response.ok) throw new Error('ユーザー詳細取得に失敗しました');
-      
-      const data = await response.json();
-      setUser(data);
-    } catch (error) {
-      console.error('Failed to load user detail:', error);
-      setError('ユーザー情報の読み込みに失敗しました');
-    }
-  };
-
-  const loadUserData = async () => {
+  const loadUserDataSummary = async () => {
     try {
       const token = localStorage.getItem('access_token');
       const response = await fetch(`http://localhost:8000/admin/users/${userId}/data-summary`, {
@@ -87,18 +61,31 @@ export const UserDetail: React.FC = () => {
         },
       });
 
-      if (!response.ok) throw new Error('ユーザーデータ取得に失敗しました');
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('API Error Response:', errorText);
+        throw new Error(`ユーザーデータ取得に失敗しました (${response.status}): ${errorText}`);
+      }
       
       const data = await response.json();
-      setUserData(data);
+      console.log('Full API Response:', JSON.stringify(data, null, 2)); // 完全なAPIレスポンスをログ出力
       
-      // デフォルトで最新の大会を選択
-      if (data.competitions.length > 0) {
+      // 🛡️ データの存在チェック
+      if (!data || typeof data !== 'object') {
+        throw new Error('無効なデータ形式です');
+      }
+      
+      console.log('user_info:', data.user_info); // user_infoを個別にログ出力
+      
+      setUserDataSummary(data);
+      
+      // デフォルトで最初の大会を選択
+      if (data.competitions && Array.isArray(data.competitions) && data.competitions.length > 0) {
         setSelectedCompetition(data.competitions[0].competition_id);
       }
     } catch (error) {
-      console.error('Failed to load user data:', error);
-      setError('ユーザーデータの読み込みに失敗しました');
+      console.error('Failed to load user data summary:', error);
+      setError(`ユーザー情報の読み込みに失敗しました: ${error.message}`);
     } finally {
       setIsLoading(false);
     }
@@ -127,6 +114,10 @@ export const UserDetail: React.FC = () => {
     }
   };
 
+  // 🔄 実際のAPIレスポンスに合わせて変数を修正
+  console.log('UserDetail - userId:', userId);
+  console.log('UserDetail - userDataSummary:', userDataSummary);
+
   if (isLoading) {
     return (
       <Layout>
@@ -137,11 +128,39 @@ export const UserDetail: React.FC = () => {
     );
   }
 
-  if (error || !user) {
+  if (error || !userDataSummary) {
     return (
       <Layout>
         <div className="text-center py-8">
           <div className="text-red-600 mb-4">{error || 'ユーザーが見つかりません'}</div>
+          <Button onClick={() => navigate('/admin/users')}>
+            ユーザー一覧に戻る
+          </Button>
+        </div>
+      </Layout>
+    );
+  }
+
+  // 🛡️ 安全なデータアクセスのためのnullチェック
+  if (!userDataSummary) {
+    return (
+      <Layout>
+        <div className="text-center py-8">
+          <div className="text-red-600 mb-4">データの読み込みに失敗しました</div>
+          <Button onClick={() => navigate('/admin/users')}>
+            ユーザー一覧に戻る
+          </Button>
+        </div>
+      </Layout>
+    );
+  }
+
+  // 🛡️ user_idの存在確認
+  if (!userDataSummary?.user_id) {
+    return (
+      <Layout>
+        <div className="text-center py-8">
+          <div className="text-red-600 mb-4">ユーザーIDが見つかりません</div>
           <Button onClick={() => navigate('/admin/users')}>
             ユーザー一覧に戻る
           </Button>
@@ -158,7 +177,7 @@ export const UserDetail: React.FC = () => {
           <div className="flex items-center justify-between">
             <div>
               <h1 className="text-3xl font-bold text-white mb-2">
-                {user.name} さんのダッシュボード
+                {userDataSummary?.user_id || 'Unknown User'} さんのダッシュボード
               </h1>
               <p className="text-green-100">
                 センサーデータと参加大会の詳細情報
@@ -179,39 +198,25 @@ export const UserDetail: React.FC = () => {
           <h2 className="text-xl font-semibold text-gray-900 mb-4">プロフィール</h2>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             <div>
-              <label className="text-sm font-medium text-gray-600">氏名</label>
-              <p className="text-lg font-semibold text-gray-900">{user.name}</p>
-            </div>
-            <div>
-              <label className="text-sm font-medium text-gray-600">メールアドレス</label>
-              <p className="text-lg font-semibold text-gray-900">{user.email}</p>
-            </div>
-            <div>
               <label className="text-sm font-medium text-gray-600">User ID</label>
-              <p className="text-lg font-semibold text-gray-900">{user.user_id}</p>
-            </div>
-            <div>
-              <label className="text-sm font-medium text-gray-600">アカウント作成日</label>
               <p className="text-lg font-semibold text-gray-900">
-                {new Date(user.created_at).toLocaleDateString('ja-JP')}
+                {userDataSummary?.user_id || 'N/A'}
               </p>
             </div>
-            {userData && (
-              <>
-                <div>
-                  <label className="text-sm font-medium text-gray-600">参加大会数</label>
-                  <p className="text-lg font-semibold text-gray-900">{userData.total_competitions}</p>
-                </div>
-                <div>
-                  <label className="text-sm font-medium text-gray-600">総データレコード数</label>
-                  <p className="text-lg font-semibold text-gray-900">
-                    {(userData.skin_temperature_records + 
-                      userData.core_temperature_records + 
-                      userData.heart_rate_records).toLocaleString()}
-                  </p>
-                </div>
-              </>
-            )}
+            <div>
+              <label className="text-sm font-medium text-gray-600">参加大会数</label>
+              <p className="text-lg font-semibold text-gray-900">
+                {userDataSummary?.total_competitions?.toLocaleString() || '0'}
+              </p>
+            </div>
+            <div>
+              <label className="text-sm font-medium text-gray-600">総データレコード数</label>
+              <p className="text-lg font-semibold text-gray-900">
+                {((userDataSummary?.skin_temperature_records || 0) + 
+                  (userDataSummary?.core_temperature_records || 0) + 
+                  (userDataSummary?.heart_rate_records || 0)).toLocaleString()}
+              </p>
+            </div>
           </div>
         </Card>
 
@@ -219,23 +224,24 @@ export const UserDetail: React.FC = () => {
         <Card className="p-6">
           <div className="flex items-center justify-between mb-6">
             <h2 className="text-xl font-semibold text-gray-900">参加大会データ</h2>
-            {userData && userData.competitions.length > 0 && (
+            {userDataSummary?.competitions && userDataSummary.competitions.length > 0 && (
               <select
                 value={selectedCompetition}
                 onChange={(e) => setSelectedCompetition(e.target.value)}
                 className="border border-gray-300 rounded-lg px-3 py-2 bg-white"
               >
                 <option value="">大会を選択してください</option>
-                {userData.competitions.map((competition) => (
+                {userDataSummary.competitions.map((competition) => (
                   <option key={competition.competition_id} value={competition.competition_id}>
-                    {competition.name} ({new Date(competition.date).toLocaleDateString('ja-JP')})
+                    {competition?.name || 'Unknown Competition'} 
+                    {competition?.date && ` (${new Date(competition.date).toLocaleDateString('ja-JP')})`}
                   </option>
                 ))}
               </select>
             )}
           </div>
 
-          {!userData || userData.competitions.length === 0 ? (
+          {!userDataSummary?.competitions || userDataSummary.competitions.length === 0 ? (
             <div className="text-center py-8 text-gray-500">
               参加大会がありません
             </div>
@@ -249,19 +255,19 @@ export const UserDetail: React.FC = () => {
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div className="bg-blue-50 p-4 rounded-lg text-center">
                   <div className="text-2xl font-bold text-blue-600">
-                    {userData.skin_temperature_records.toLocaleString()}
+                    {userDataSummary?.skin_temperature_records?.toLocaleString() || '0'}
                   </div>
                   <div className="text-sm text-blue-600">体表温データ</div>
                 </div>
                 <div className="bg-red-50 p-4 rounded-lg text-center">
                   <div className="text-2xl font-bold text-red-600">
-                    {userData.core_temperature_records.toLocaleString()}
+                    {userDataSummary?.core_temperature_records?.toLocaleString() || '0'}
                   </div>
                   <div className="text-sm text-red-600">カプセル体温データ</div>
                 </div>
                 <div className="bg-green-50 p-4 rounded-lg text-center">
                   <div className="text-2xl font-bold text-green-600">
-                    {userData.heart_rate_records.toLocaleString()}
+                    {userDataSummary?.heart_rate_records?.toLocaleString() || '0'}
                   </div>
                   <div className="text-sm text-green-600">心拍データ</div>
                 </div>
@@ -295,22 +301,22 @@ export const UserDetail: React.FC = () => {
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-gray-200">
-                        {sensorData.map((sensor, index) => (
+                        {sensorData.map((data, index) => (
                           <tr key={index} className="hover:bg-gray-50">
                             <td className="px-4 py-3 text-sm text-gray-900">
-                              {sensor.sensor_type}
-                            </td>
-                            <td className="px-4 py-3 text-sm font-mono text-gray-900">
-                              {sensor.sensor_id}
+                              {data?.sensor_type || 'N/A'}
                             </td>
                             <td className="px-4 py-3 text-sm text-gray-900">
-                              {sensor.record_count.toLocaleString()}
+                              {data?.sensor_id || 'N/A'}
                             </td>
                             <td className="px-4 py-3 text-sm text-gray-900">
-                              {new Date(sensor.latest_record).toLocaleString('ja-JP')}
+                              {data?.record_count?.toLocaleString() || '0'}
                             </td>
                             <td className="px-4 py-3 text-sm text-gray-900">
-                              {sensor.data_range}
+                              {data?.latest_record ? new Date(data.latest_record).toLocaleString('ja-JP') : 'N/A'}
+                            </td>
+                            <td className="px-4 py-3 text-sm text-gray-900">
+                              {data?.data_range || 'N/A'}
                             </td>
                           </tr>
                         ))}
@@ -323,23 +329,6 @@ export const UserDetail: React.FC = () => {
                   選択した大会のセンサーデータがありません
                 </div>
               )}
-
-              {/* 将来の拡張: グラフ表示予定エリア */}
-              <Card className="p-6 bg-gray-50 border-dashed border-2 border-gray-300">
-                <div className="text-center py-8">
-                  <div className="text-gray-400 mb-2">
-                    <svg className="w-16 h-16 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-                    </svg>
-                  </div>
-                  <h3 className="text-lg font-medium text-gray-600 mb-2">
-                    フィードバックグラフ（開発予定）
-                  </h3>
-                  <p className="text-sm text-gray-500">
-                    時系列グラフ、競技区間表示、心拍・温度データの可視化機能を実装予定です
-                  </p>
-                </div>
-              </Card>
             </div>
           )}
         </Card>
