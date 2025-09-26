@@ -590,67 +590,6 @@ class FlexibleCSVService:
             print(f"WBGT処理エラー: {str(e)}")
             raise HTTPException(status_code=500, detail=f"WBGT処理エラー: {str(e)}")
 
-    def get_mapping_status(
-        self,
-        db: Session,
-        competition_id: Optional[str] = None
-    ) -> MappingStatusResponse:
-        """マッピング状況確認"""
-        
-        query = db.query(RawSensorData)
-        if competition_id:
-            query = query.filter_by(competition_id=competition_id)
-        
-        status_counts = {}
-        for status in SensorDataStatus:
-            count = query.filter_by(mapping_status=status).count()
-            status_counts[status.value] = count
-        
-        unmapped_by_type = {}
-        for sensor_type in SensorType:
-            count = query.filter(
-                RawSensorData.sensor_type == sensor_type,
-                RawSensorData.mapping_status == SensorDataStatus.UNMAPPED
-            ).count()
-            unmapped_by_type[sensor_type.value] = count
-        
-        return MappingStatusResponse(
-            status_counts=status_counts,
-            unmapped_by_sensor_type=unmapped_by_type,
-            competition_id=competition_id
-        )
-
-    def get_unmapped_sensors(
-        self,
-        db: Session,
-        sensor_type: Optional[SensorType] = None,
-        competition_id: Optional[str] = None,
-        limit: int = 100
-    ) -> List[Dict[str, Any]]:
-        """未マップセンサー一覧取得"""
-        
-        query = db.query(RawSensorData).filter_by(mapping_status=SensorDataStatus.UNMAPPED)
-        
-        if sensor_type:
-            query = query.filter_by(sensor_type=sensor_type)
-        if competition_id:
-            query = query.filter_by(competition_id=competition_id)
-        
-        # センサーIDでグループ化
-        unmapped_sensors = query.with_entities(
-            RawSensorData.sensor_id,
-            RawSensorData.sensor_type,
-            RawSensorData.competition_id
-        ).distinct().limit(limit).all()
-        
-        return [
-            {
-                'sensor_id': sensor.sensor_id,
-                'sensor_type': sensor.sensor_type.value,
-                'competition_id': sensor.competition_id
-            }
-            for sensor in unmapped_sensors
-        ]
 
     def _detect_race_phases(self, record_data: dict) -> dict:
         """SWIM/BIKE/RUN区間自動判定（フィードバックグラフ背景色用）"""
