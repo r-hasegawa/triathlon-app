@@ -114,28 +114,332 @@ async def get_admin_stats(
 
 # ===== ユーザー管理 =====
 
-@router.get("/users", response_model=List[UserResponse])
+@router.get("/users")
 async def get_users(
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=1000),
+    search: Optional[str] = Query(None),
     db: Session = Depends(get_db),
     current_admin: AdminUser = Depends(get_current_admin)
 ):
-    """ユーザー一覧取得"""
-    users = db.query(User).offset(skip).limit(limit).all()
-    return [UserResponse.from_orm(user) for user in users]
+    """ユーザー一覧取得（修正版）"""
+    try:
+        query = db.query(User)
+        
+        # 検索機能
+        if search:
+            search_term = f"%{search}%"
+            query = query.filter(
+                (User.username.ilike(search_term)) |
+                (User.full_name.ilike(search_term)) |
+                (User.email.ilike(search_term)) |
+                (User.user_id.ilike(search_term))
+            )
+        
+        # ページネーション
+        total_count = query.count()
+        users = query.offset(skip).limit(limit).all()
+        
+        # レスポンス形式を修正
+        user_list = []
+        for user in users:
+            # センサーデータ数を取得
+            sensor_data_count = (
+                db.query(SkinTemperatureData).filter_by(mapped_user_id=user.user_id).count() +
+                db.query(CoreTemperatureData).filter_by(mapped_user_id=user.user_id).count() +
+                db.query(HeartRateData).filter_by(mapped_user_id=user.user_id).count()
+            )
+            
+            # 参加大会数を取得
+            competitions_count = db.query(RaceRecord).filter_by(user_id=user.user_id).distinct().count()
+            
+            user_data = {
+                "id": user.id,
+                "user_id": user.user_id,
+                "username": user.username,
+                "full_name": user.full_name,
+                "email": user.email,
+                "is_active": user.is_active,
+                "created_at": user.created_at.isoformat() if user.created_at else None,
+                "sensor_data_count": sensor_data_count,
+                "competitions_count": competitions_count,
+                "last_activity": None  # 今後の拡張用
+            }
+            user_list.append(user_data)
+        
+        return {
+            "users": user_list,
+            "total_count": total_count,
+            "current_page": skip // limit + 1 if limit > 0 else 1,
+            "total_pages": (total_count + limit - 1) // limit if limit > 0 else 1,
+            "has_next": skip + limit < total_count,
+            "has_previous": skip > 0
+        }
+        
+    except Exception as e:
+        error_message = f"ユーザー一覧取得エラー: {str(e)}"
+        print(f"❌ {error_message}")
+        raise HTTPException(status_code=500, detail=error_message)
 
-@router.get("/users/{user_id}", response_model=UserResponse)
+@router.get("/users/{user_id}")
 async def get_user_detail(
     user_id: str,
     db: Session = Depends(get_db),
     current_admin: AdminUser = Depends(get_current_admin)
 ):
-    """ユーザー詳細取得"""
-    user = db.query(User).filter_by(user_id=user_id).first()
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
-    return UserResponse.from_orm(user)
+    """ユーザー詳細取得（修正版）"""
+    try:
+        user = db.query(User).filter_by(user_id=user_id).first()
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        
+        # センサーデータ詳細
+        skin_temp_count = db.query(SkinTemperatureData).filter_by(mapped_user_id=user.user_id).count()
+        core_temp_count = db.query(CoreTemperatureData).filter_by(mapped_user_id=user.user_id).count()
+        heart_rate_count = db.query(HeartRateData).filter_by(mapped_user_id=user.user_id).count()
+        
+        # 大会参加履歴
+        race_records = db.query(RaceRecord).filter_by(user_id=user.user_id).all()
+        competitions_data = []
+        
+        for record in race_records:
+            competition = db.query(Competition).filter_by(competition_id=record.competition_id).first()
+            if competition:
+                competitions_data.append({
+                    "competition_id": competition.competition_id,
+                    "name": competition.name,
+                    "date": competition.date.isoformat() if competition.date else None,
+                    "race_number": record.race_number,
+                    "swim_start": record.swim_start_time.isoformat() if record.swim_start_time else None,
+                    "run_finish": record.run_finish_time.isoformat() if record.run_finish_time else None
+                })
+        
+        # マッピング情報
+        mappings = db.query(FlexibleSensorMapping).filter_by(
+            user_id=user.user_id, 
+            is_active=True
+        ).all()
+        
+        mapping_info = {}
+        for mapping in mappings:
+            sensor_type = mapping.sensor_type.value
+            if sensor_type not in mapping_info:
+                mapping_info[sensor_type] = []
+            mapping_info[sensor_type].append({
+                "sensor_id": mapping.sensor_id,
+                "competition_id": mapping.competition_id,
+                "device_type": mapping.device_type,
+                "subject_name": mapping.subject_name
+            })
+        
+        return {
+            "user_info": {
+                "id": user.id,
+                "user_id": user.user_id,
+                "username": user.username,
+                "full_name": user.full_name,
+                "email": user.email,
+                "is_active": user.is_active,
+                "created_at": user.created_at.isoformat() if user.created_at else None
+            },
+            "sensor_data_summary": {
+                "skin_temperature": skin_temp_count,
+                "core_temperature": core_temp_count,
+                "heart_rate": heart_rate_count,
+                "total": skin_temp_count + core_temp_count + heart_rate_count
+            },
+            "competitions": competitions_data,
+            "sensor_mappings": mapping_info,
+            "statistics": {
+                "total_competitions": len(competitions_data),
+                "total_sensor_data": skin_temp_count + core_temp_count + heart_rate_count,
+                "active_mappings": len(mappings)
+            }
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        error_message = f"ユーザー詳細取得エラー: {str(e)}"
+        print(f"❌ {error_message}")
+        raise HTTPException(status_code=500, detail=error_message)
+
+# ===== Admin権限でのユーザーページアクセス =====
+
+@router.get("/users/{user_id}/dashboard")
+async def get_user_dashboard_as_admin(
+    user_id: str,
+    db: Session = Depends(get_db),
+    current_admin: AdminUser = Depends(get_current_admin)
+):
+    """Admin権限でユーザーダッシュボードデータ取得"""
+    try:
+        user = db.query(User).filter_by(user_id=user_id).first()
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        
+        # ユーザーのダッシュボードデータを取得（/me/data-summaryと同等）
+        # センサーデータサマリー
+        skin_temp_data = db.query(SkinTemperatureData).filter_by(mapped_user_id=user.user_id).all()
+        core_temp_data = db.query(CoreTemperatureData).filter_by(mapped_user_id=user.user_id).all()
+        heart_rate_data = db.query(HeartRateData).filter_by(mapped_user_id=user.user_id).all()
+        
+        # 参加大会一覧
+        race_records = db.query(RaceRecord).filter_by(user_id=user.user_id).all()
+        competitions_list = []
+        
+        for record in race_records:
+            competition = db.query(Competition).filter_by(competition_id=record.competition_id).first()
+            if competition:
+                competitions_list.append({
+                    "competition_id": competition.competition_id,
+                    "name": competition.name,
+                    "date": competition.date.isoformat() if competition.date else None,
+                    "location": competition.location,
+                    "race_number": record.race_number,
+                    "has_sensor_data": len(skin_temp_data) > 0 or len(core_temp_data) > 0 or len(heart_rate_data) > 0
+                })
+        
+        # 最新のセンサーデータ（サンプル）
+        latest_data = []
+        if skin_temp_data:
+            latest_skin = sorted(skin_temp_data, key=lambda x: x.datetime, reverse=True)[:5]
+            for data in latest_skin:
+                latest_data.append({
+                    "type": "skin_temperature",
+                    "datetime": data.datetime.isoformat(),
+                    "value": data.temperature,
+                    "sensor_id": data.halshare_id,
+                    "competition_id": data.competition_id
+                })
+        
+        return {
+            "user_info": {
+                "user_id": user.user_id,
+                "username": user.username,
+                "full_name": user.full_name,
+                "email": user.email
+            },
+            "sensor_data_summary": {
+                "skin_temperature_count": len(skin_temp_data),
+                "core_temperature_count": len(core_temp_data),
+                "heart_rate_count": len(heart_rate_data),
+                "total_records": len(skin_temp_data) + len(core_temp_data) + len(heart_rate_data)
+            },
+            "competitions": competitions_list,
+            "recent_sensor_data": latest_data[:10],  # 最新10件
+            "access_info": {
+                "accessed_by_admin": current_admin.admin_id,
+                "access_time": datetime.now().isoformat(),
+                "access_type": "admin_view"
+            }
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        error_message = f"ユーザーダッシュボード取得エラー: {str(e)}"
+        print(f"❌ {error_message}")
+        raise HTTPException(status_code=500, detail=error_message)
+
+@router.get("/users/{user_id}/sensor-data")
+async def get_user_sensor_data_as_admin(
+    user_id: str,
+    competition_id: Optional[str] = Query(None),
+    sensor_type: Optional[str] = Query(None),
+    limit: int = Query(100, ge=1, le=1000),
+    db: Session = Depends(get_db),
+    current_admin: AdminUser = Depends(get_current_admin)
+):
+    """Admin権限でユーザーのセンサーデータ取得"""
+    try:
+        user = db.query(User).filter_by(user_id=user_id).first()
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        
+        sensor_data = []
+        
+        # 体表温データ
+        if not sensor_type or sensor_type == "skin_temperature":
+            skin_query = db.query(SkinTemperatureData).filter_by(mapped_user_id=user.user_id)
+            if competition_id:
+                skin_query = skin_query.filter_by(competition_id=competition_id)
+            
+            skin_data = skin_query.order_by(SkinTemperatureData.datetime.desc()).limit(limit).all()
+            for data in skin_data:
+                sensor_data.append({
+                    "id": data.id,
+                    "type": "skin_temperature",
+                    "datetime": data.datetime.isoformat(),
+                    "value": data.temperature,
+                    "sensor_id": data.halshare_id,
+                    "sensor_name": data.halshare_wearer_name,
+                    "competition_id": data.competition_id,
+                    "upload_batch_id": data.upload_batch_id
+                })
+        
+        # カプセル温データ
+        if not sensor_type or sensor_type == "core_temperature":
+            core_query = db.query(CoreTemperatureData).filter_by(mapped_user_id=user.user_id)
+            if competition_id:
+                core_query = core_query.filter_by(competition_id=competition_id)
+            
+            core_data = core_query.order_by(CoreTemperatureData.datetime.desc()).limit(limit).all()
+            for data in core_data:
+                sensor_data.append({
+                    "id": data.id,
+                    "type": "core_temperature",
+                    "datetime": data.datetime.isoformat(),
+                    "value": data.temperature,
+                    "sensor_id": data.capsule_id,
+                    "monitor_id": data.monitor_id,
+                    "status": data.status,
+                    "competition_id": data.competition_id,
+                    "upload_batch_id": data.upload_batch_id
+                })
+        
+        # 心拍データ
+        if not sensor_type or sensor_type == "heart_rate":
+            heart_query = db.query(HeartRateData).filter_by(mapped_user_id=user.user_id)
+            if competition_id:
+                heart_query = heart_query.filter_by(competition_id=competition_id)
+            
+            heart_data = heart_query.order_by(HeartRateData.time.desc()).limit(limit).all()
+            for data in heart_data:
+                sensor_data.append({
+                    "id": data.id,
+                    "type": "heart_rate",
+                    "datetime": data.time.isoformat(),
+                    "value": data.heart_rate,
+                    "sensor_id": data.sensor_id,
+                    "competition_id": data.competition_id,
+                    "upload_batch_id": data.upload_batch_id
+                })
+        
+        # 時系列順でソート
+        sensor_data.sort(key=lambda x: x['datetime'], reverse=True)
+        
+        return {
+            "user_id": user.user_id,
+            "sensor_data": sensor_data[:limit],
+            "total_records": len(sensor_data),
+            "filters": {
+                "competition_id": competition_id,
+                "sensor_type": sensor_type,
+                "limit": limit
+            },
+            "access_info": {
+                "accessed_by_admin": current_admin.admin_id,
+                "access_time": datetime.now().isoformat()
+            }
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        error_message = f"ユーザーセンサーデータ取得エラー: {str(e)}"
+        print(f"❌ {error_message}")
+        raise HTTPException(status_code=500, detail=error_message)
 
 # ===== 大会管理 =====
 
@@ -699,18 +1003,15 @@ async def upload_mapping_data(
 async def upload_race_records(
     competition_id: str = Form(...),
     files: List[UploadFile] = File(...),
-    overwrite: bool = Form(True),
     db: Session = Depends(get_db),
     current_admin: AdminUser = Depends(get_current_admin)
 ):
     """
-    大会記録データアップロード（複数CSV統合対応）
+    大会記録データアップロード（簡素版）
     
-    実データ対応:
-    - 複数のCSVファイル対応
-    - ゼッケン番号（"No."列）による統合
-    - 実データ列名（START/SF/BS/RS/RF）対応
-    - バイクLAP（BL1,BL2...）とランLAP（RL1,RL2...）対応
+    - 上書き機能削除
+    - シンプルな追加のみ
+    - ログから削除可能
     """
     
     # ファイル形式チェック
@@ -733,7 +1034,7 @@ async def upload_race_records(
     csv_service = FlexibleCSVService()
     
     try:
-        # ファイルサイズ計算（事前読み込み）
+        # ファイル情報計算
         total_file_size = 0
         file_info = []
         
@@ -742,18 +1043,15 @@ async def upload_race_records(
             file_size = len(content)
             total_file_size += file_size
             file_info.append({"name": file.filename, "size": file_size})
-            
-            # ファイルポインタをリセット
-            await file.seek(0)
+            await file.seek(0)  # ファイルポインタをリセット
         
         print(f"大会記録アップロード開始: {len(files)}ファイル, 合計{total_file_size}bytes")
         
-        # 大会記録統合処理
+        # 大会記録処理（overwrite引数削除）
         result = await csv_service.process_race_record_data(
             race_files=files,
             competition_id=competition_id,
-            db=db,
-            overwrite=overwrite
+            db=db
         )
         
         # レスポンス情報の拡張
@@ -769,7 +1067,6 @@ async def upload_race_records(
         return result
         
     except HTTPException:
-        # HTTPExceptionは再発生
         raise
     except Exception as e:
         db.rollback()
@@ -1366,3 +1663,4 @@ async def apply_race_number_mapping(competition_id: str, db: Session) -> dict:
             "applied_race_records": 0,
             "error": error_message
         }
+
