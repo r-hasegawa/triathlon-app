@@ -20,9 +20,7 @@ class Competition(Base):
     date = Column(Date, nullable=True)
     location = Column(String(200), nullable=True)
     description = Column(Text, nullable=True)
-    is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, server_default=func.now())
-    updated_at = Column(DateTime, onupdate=func.now())
     
     def __init__(self, **kwargs):
         if 'competition_id' not in kwargs:
@@ -64,10 +62,6 @@ class RaceRecord(Base):
     notes = Column(Text, nullable=True)
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, onupdate=func.now())
-    
-    # リレーション（循環インポートを避けるため後で定義）
-    # competition = relationship("Competition", back_populates="race_records")
-    # user = relationship("User", back_populates="race_records")
     
     @property
     def total_start_time(self):

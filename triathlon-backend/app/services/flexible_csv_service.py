@@ -315,7 +315,6 @@ class FlexibleCSVService:
                                 sensor_type=SensorType.RACE_RECORD,       # 🆕 RACE_RECORDに変更
                                 subject_name=str(row.get('subject_name', '')).strip() or None,
                                 device_type='race_record',                # 🔄 device_typeも変更
-                                is_active=True,
                                 created_at=datetime.now()
                             )
                             db.add(race_mapping)
@@ -339,7 +338,6 @@ class FlexibleCSVService:
                                     sensor_id=sensor_id,
                                     sensor_type=recognized_sensor_columns[col_name],
                                     subject_name=str(row.get('subject_name', '')).strip() or None,
-                                    is_active=True,
                                     created_at=datetime.now()
                                 )
                                 db.add(sensor_mapping)
@@ -403,8 +401,7 @@ class FlexibleCSVService:
             # 🆕 RACE_RECORDタイプのマッピングを取得
             race_mappings = db.query(FlexibleSensorMapping).filter_by(
                 competition_id=competition_id,
-                sensor_type=SensorType.RACE_RECORD,  # 🔄 変更点
-                is_active=True
+                sensor_type=SensorType.RACE_RECORD
             ).all()
             
             print(f"🏃 大会記録マッピング数: {len(race_mappings)}")

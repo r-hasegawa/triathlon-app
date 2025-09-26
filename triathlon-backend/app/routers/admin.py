@@ -68,7 +68,7 @@ async def get_admin_stats(
     db: Session = Depends(get_db),
     current_admin: AdminUser = Depends(get_current_admin)
 ):
-    """管理者向けシステム統計情報"""
+    """管理者向けシステム統計情報（シンプル化版）"""
     try:
         # ユーザー統計
         total_users = db.query(User).count()
@@ -76,23 +76,32 @@ async def get_admin_stats(
         
         # 大会統計
         total_competitions = db.query(Competition).count()
-        active_competitions = db.query(Competition).filter_by(is_active=True).count()
         
-        # データ統計
+        # センサーデータ統計（シンプル）
         total_skin_temp = db.query(SkinTemperatureData).count()
         total_core_temp = db.query(CoreTemperatureData).count()
         total_heart_rate = db.query(HeartRateData).count()
         total_wbgt = db.query(WBGTData).count()
         total_race_records = db.query(RaceRecord).count()
         
-        # マッピング統計
+        # マッピング統計（物理削除ベース）
         total_mappings = db.query(FlexibleSensorMapping).count()
-        active_mappings = db.query(FlexibleSensorMapping).filter_by(is_active=True).count()
         
-        # アップロードバッチ統計（修正）
+        # センサーID別のマッピング統計
+        mapped_sensors_count = db.query(
+            FlexibleSensorMapping.sensor_id
+        ).distinct().count()
+        
+        # ユーザー別マッピング統計
+        users_with_mappings = db.query(
+            FlexibleSensorMapping.user_id
+        ).distinct().count()
+        
+        # アップロードバッチ統計
         total_batches = db.query(UploadBatch).count()
+        today_start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
         recent_batches = db.query(UploadBatch).filter(
-            UploadBatch.uploaded_at >= datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+            UploadBatch.uploaded_at >= today_start
         ).count()
         
         return {
@@ -101,8 +110,7 @@ async def get_admin_stats(
                 "total_admins": total_admins
             },
             "competitions": {
-                "total_competitions": total_competitions,
-                "active_competitions": active_competitions
+                "total_competitions": total_competitions
             },
             "sensor_data": {
                 "skin_temperature": total_skin_temp,
@@ -114,8 +122,8 @@ async def get_admin_stats(
             },
             "mappings": {
                 "total_mappings": total_mappings,
-                "active_mappings": active_mappings,
-                "mapping_rate": round((active_mappings / max(total_mappings, 1)) * 100, 2)
+                "mapped_sensors": mapped_sensors_count,
+                "users_with_mappings": users_with_mappings
             },
             "upload_activity": {
                 "total_batches": total_batches,
@@ -138,7 +146,7 @@ async def get_users(
     db: Session = Depends(get_db),
     current_admin: AdminUser = Depends(get_current_admin)
 ):
-    """ユーザー一覧取得（修正版）"""
+    """ユーザー一覧取得（JOIN修正版）"""
     try:
         query = db.query(User)
         
@@ -156,40 +164,43 @@ async def get_users(
         total_count = query.count()
         users = query.offset(skip).limit(limit).all()
         
-        # レスポンス形式を修正
+        # レスポンス形式を修正（JOINベース）
         user_list = []
         for user in users:
-            # センサーデータ数を取得
-            sensor_data_count = (
-                db.query(SkinTemperatureData).filter_by(mapped_user_id=user.user_id).count() +
-                db.query(CoreTemperatureData).filter_by(mapped_user_id=user.user_id).count() +
-                db.query(HeartRateData).filter_by(mapped_user_id=user.user_id).count()
-            )
+            # JOINクエリでセンサーデータ数を取得
+            skin_temp_count = get_user_sensor_data_count(db, user.user_id, "skin_temperature")
+            core_temp_count = get_user_sensor_data_count(db, user.user_id, "core_temperature")
+            heart_rate_count = get_user_sensor_data_count(db, user.user_id, "heart_rate")
             
-            # 参加大会数を取得
-            competitions_count = db.query(RaceRecord).filter_by(user_id=user.user_id).distinct().count()
+            # マッピング情報取得
+            mapping_count = db.query(FlexibleSensorMapping).filter_by(
+                user_id=user.user_id
+            ).count()
             
-            user_data = {
+            user_list.append({
                 "id": user.id,
                 "user_id": user.user_id,
                 "username": user.username,
                 "full_name": user.full_name,
                 "email": user.email,
-                "is_active": user.is_active,
                 "created_at": user.created_at.isoformat() if user.created_at else None,
-                "sensor_data_count": sensor_data_count,
-                "competitions_count": competitions_count,
-                "last_activity": None  # 今後の拡張用
-            }
-            user_list.append(user_data)
+                "sensor_data_count": skin_temp_count + core_temp_count + heart_rate_count,
+                "mapping_count": mapping_count,
+                "sensor_breakdown": {
+                    "skin_temperature": skin_temp_count,
+                    "core_temperature": core_temp_count,
+                    "heart_rate": heart_rate_count
+                }
+            })
         
         return {
             "users": user_list,
-            "total_count": total_count,
-            "current_page": skip // limit + 1 if limit > 0 else 1,
-            "total_pages": (total_count + limit - 1) // limit if limit > 0 else 1,
-            "has_next": skip + limit < total_count,
-            "has_previous": skip > 0
+            "pagination": {
+                "total": total_count,
+                "skip": skip,
+                "limit": limit,
+                "has_more": total_count > (skip + limit)
+            }
         }
         
     except Exception as e:
@@ -203,37 +214,37 @@ async def get_user_detail(
     db: Session = Depends(get_db),
     current_admin: AdminUser = Depends(get_current_admin)
 ):
-    """ユーザー詳細取得（修正版）"""
+    """ユーザー詳細取得（JOIN修正版）"""
     try:
         user = db.query(User).filter_by(user_id=user_id).first()
         if not user:
-            raise HTTPException(status_code=404, detail="User not found")
+            raise HTTPException(status_code=404, detail="ユーザーが見つかりません")
         
-        # センサーデータ詳細
-        skin_temp_count = db.query(SkinTemperatureData).filter_by(mapped_user_id=user.user_id).count()
-        core_temp_count = db.query(CoreTemperatureData).filter_by(mapped_user_id=user.user_id).count()
-        heart_rate_count = db.query(HeartRateData).filter_by(mapped_user_id=user.user_id).count()
+        # JOINクエリでセンサーデータ数を取得
+        skin_temp_count = get_user_sensor_data_count(db, user.user_id, "skin_temperature")
+        core_temp_count = get_user_sensor_data_count(db, user.user_id, "core_temperature")
+        heart_rate_count = get_user_sensor_data_count(db, user.user_id, "heart_rate")
         
-        # 大会参加履歴
+        # 参加大会一覧
         race_records = db.query(RaceRecord).filter_by(user_id=user.user_id).all()
         competitions_data = []
         
         for record in race_records:
-            competition = db.query(Competition).filter_by(competition_id=record.competition_id).first()
+            competition = db.query(Competition).filter_by(
+                competition_id=record.competition_id
+            ).first()
+            
             if competition:
                 competitions_data.append({
                     "competition_id": competition.competition_id,
                     "name": competition.name,
                     "date": competition.date.isoformat() if competition.date else None,
-                    "race_number": record.race_number,
-                    "swim_start": record.swim_start_time.isoformat() if record.swim_start_time else None,
-                    "run_finish": record.run_finish_time.isoformat() if record.run_finish_time else None
+                    "race_number": record.race_number
                 })
         
-        # マッピング情報
+        # マッピング情報（is_activeフィルタ削除）
         mappings = db.query(FlexibleSensorMapping).filter_by(
-            user_id=user.user_id, 
-            is_active=True
+            user_id=user.user_id
         ).all()
         
         mapping_info = {}
@@ -255,7 +266,6 @@ async def get_user_detail(
                 "username": user.username,
                 "full_name": user.full_name,
                 "email": user.email,
-                "is_active": user.is_active,
                 "created_at": user.created_at.isoformat() if user.created_at else None
             },
             "sensor_data_summary": {
@@ -269,7 +279,7 @@ async def get_user_detail(
             "statistics": {
                 "total_competitions": len(competitions_data),
                 "total_sensor_data": skin_temp_count + core_temp_count + heart_rate_count,
-                "active_mappings": len(mappings)
+                "total_mappings": len(mappings)
             }
         }
         
@@ -280,25 +290,22 @@ async def get_user_detail(
         print(f"❌ {error_message}")
         raise HTTPException(status_code=500, detail=error_message)
 
-# ===== Admin権限でのユーザーページアクセス =====
-
 @router.get("/users/{user_id}/dashboard")
 async def get_user_dashboard_as_admin(
     user_id: str,
     db: Session = Depends(get_db),
     current_admin: AdminUser = Depends(get_current_admin)
 ):
-    """Admin権限でユーザーダッシュボードデータ取得"""
+    """Admin権限でユーザーダッシュボードデータ取得（JOIN修正版）"""
     try:
         user = db.query(User).filter_by(user_id=user_id).first()
         if not user:
             raise HTTPException(status_code=404, detail="User not found")
         
-        # ユーザーのダッシュボードデータを取得（/me/data-summaryと同等）
-        # センサーデータサマリー
-        skin_temp_data = db.query(SkinTemperatureData).filter_by(mapped_user_id=user.user_id).all()
-        core_temp_data = db.query(CoreTemperatureData).filter_by(mapped_user_id=user.user_id).all()
-        heart_rate_data = db.query(HeartRateData).filter_by(mapped_user_id=user.user_id).all()
+        # JOINクエリでセンサーデータを取得
+        skin_temp_data = get_user_sensor_data(db, user.user_id, "skin_temperature")
+        core_temp_data = get_user_sensor_data(db, user.user_id, "core_temperature")
+        heart_rate_data = get_user_sensor_data(db, user.user_id, "heart_rate")
         
         # 参加大会一覧
         race_records = db.query(RaceRecord).filter_by(user_id=user.user_id).all()
@@ -359,103 +366,164 @@ async def get_user_dashboard_as_admin(
         raise HTTPException(status_code=500, detail=error_message)
 
 @router.get("/users/{user_id}/sensor-data")
-async def get_user_sensor_data_as_admin(
+async def get_user_sensor_data(
     user_id: str,
     competition_id: Optional[str] = Query(None),
-    sensor_type: Optional[str] = Query(None),
-    limit: int = Query(100, ge=1, le=1000),
     db: Session = Depends(get_db),
     current_admin: AdminUser = Depends(get_current_admin)
 ):
-    """Admin権限でユーザーのセンサーデータ取得"""
+    """ユーザーのセンサーデータ詳細取得（JOINベース修正版）"""
+    
+    # ユーザー存在チェック
+    user = db.query(User).filter_by(user_id=user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="ユーザーが見つかりません")
+    
     try:
-        user = db.query(User).filter_by(user_id=user_id).first()
-        if not user:
-            raise HTTPException(status_code=404, detail="User not found")
-        
         sensor_data = []
         
-        # 体表温データ
-        if not sensor_type or sensor_type == "skin_temperature":
-            skin_query = db.query(SkinTemperatureData).filter_by(mapped_user_id=user.user_id)
-            if competition_id:
-                skin_query = skin_query.filter_by(competition_id=competition_id)
+        # JOINクエリで体表温データを取得
+        skin_temp_data = _get_user_sensor_data_helper(db, user_id, "skin_temperature", competition_id)
+        if skin_temp_data:
+            latest_record = max(skin_temp_data, key=lambda x: x.datetime)
+            earliest_record = min(skin_temp_data, key=lambda x: x.datetime)
             
-            skin_data = skin_query.order_by(SkinTemperatureData.datetime.desc()).limit(limit).all()
-            for data in skin_data:
-                sensor_data.append({
-                    "id": data.id,
-                    "type": "skin_temperature",
-                    "datetime": data.datetime.isoformat(),
-                    "value": data.temperature,
-                    "sensor_id": data.halshare_id,
-                    "sensor_name": data.halshare_wearer_name,
-                    "competition_id": data.competition_id,
-                    "upload_batch_id": data.upload_batch_id
-                })
+            sensor_data.append({
+                "sensor_type": "体表温センサー",
+                "sensor_id": skin_temp_data[0].halshare_id,
+                "record_count": len(skin_temp_data),
+                "latest_record": latest_record.datetime.isoformat(),
+                "earliest_record": earliest_record.datetime.isoformat(),
+                "latest_value": latest_record.temperature,
+                "sensor_location": "halshare"
+            })
         
-        # カプセル温データ
-        if not sensor_type or sensor_type == "core_temperature":
-            core_query = db.query(CoreTemperatureData).filter_by(mapped_user_id=user.user_id)
-            if competition_id:
-                core_query = core_query.filter_by(competition_id=competition_id)
+        # JOINクエリでカプセル体温データを取得
+        core_temp_data = _get_user_sensor_data_helper(db, user_id, "core_temperature", competition_id)
+        if core_temp_data:
+            latest_record = max(core_temp_data, key=lambda x: x.datetime)
+            earliest_record = min(core_temp_data, key=lambda x: x.datetime)
             
-            core_data = core_query.order_by(CoreTemperatureData.datetime.desc()).limit(limit).all()
-            for data in core_data:
-                sensor_data.append({
-                    "id": data.id,
-                    "type": "core_temperature",
-                    "datetime": data.datetime.isoformat(),
-                    "value": data.temperature,
-                    "sensor_id": data.capsule_id,
-                    "monitor_id": data.monitor_id,
-                    "status": data.status,
-                    "competition_id": data.competition_id,
-                    "upload_batch_id": data.upload_batch_id
-                })
+            sensor_data.append({
+                "sensor_type": "カプセル体温センサー",
+                "sensor_id": core_temp_data[0].capsule_id,
+                "record_count": len(core_temp_data),
+                "latest_record": latest_record.datetime.isoformat(),
+                "earliest_record": earliest_record.datetime.isoformat(),
+                "latest_value": latest_record.temperature,
+                "sensor_location": "e-Celcius"
+            })
         
-        # 心拍データ
-        if not sensor_type or sensor_type == "heart_rate":
-            heart_query = db.query(HeartRateData).filter_by(mapped_user_id=user.user_id)
-            if competition_id:
-                heart_query = heart_query.filter_by(competition_id=competition_id)
+        # JOINクエリで心拍データを取得
+        heart_rate_data = _get_user_sensor_data_helper(db, user_id, "heart_rate", competition_id)
+        if heart_rate_data:
+            latest_record = max(heart_rate_data, key=lambda x: x.time)
+            earliest_record = min(heart_rate_data, key=lambda x: x.time)
             
-            heart_data = heart_query.order_by(HeartRateData.time.desc()).limit(limit).all()
-            for data in heart_data:
-                sensor_data.append({
-                    "id": data.id,
-                    "type": "heart_rate",
-                    "datetime": data.time.isoformat(),
-                    "value": data.heart_rate,
-                    "sensor_id": data.sensor_id,
-                    "competition_id": data.competition_id,
-                    "upload_batch_id": data.upload_batch_id
-                })
-        
-        # 時系列順でソート
-        sensor_data.sort(key=lambda x: x['datetime'], reverse=True)
+            sensor_data.append({
+                "sensor_type": "心拍センサー",
+                "sensor_id": heart_rate_data[0].sensor_id,
+                "record_count": len(heart_rate_data),
+                "latest_record": latest_record.time.isoformat(),
+                "earliest_record": earliest_record.time.isoformat(),
+                "latest_value": latest_record.heart_rate,
+                "sensor_location": "Garmin"
+            })
         
         return {
-            "user_id": user.user_id,
-            "sensor_data": sensor_data[:limit],
-            "total_records": len(sensor_data),
-            "filters": {
-                "competition_id": competition_id,
-                "sensor_type": sensor_type,
-                "limit": limit
-            },
+            "user_id": user_id,
+            "competition_id": competition_id,
+            "sensor_data": sensor_data,
+            "total_sensors": len(sensor_data),
             "access_info": {
                 "accessed_by_admin": current_admin.admin_id,
                 "access_time": datetime.now().isoformat()
             }
         }
         
-    except HTTPException:
-        raise
     except Exception as e:
         error_message = f"ユーザーセンサーデータ取得エラー: {str(e)}"
         print(f"❌ {error_message}")
         raise HTTPException(status_code=500, detail=error_message)
+
+def get_user_sensor_data_count(db: Session, user_id: str, sensor_type: str, competition_id: str = None) -> int:
+    """JOINクエリでユーザーのセンサーデータ数を取得"""
+    
+    # マッピング取得
+    mapping_query = db.query(FlexibleSensorMapping).filter_by(
+        user_id=user_id,
+        sensor_type=sensor_type
+    )
+    if competition_id:
+        mapping_query = mapping_query.filter_by(competition_id=competition_id)
+    
+    mappings = mapping_query.all()
+    if not mappings:
+        return 0
+    
+    sensor_ids = [m.sensor_id for m in mappings]
+    
+    # センサータイプ別データ数取得
+    if sensor_type == "skin_temperature":
+        return db.query(SkinTemperatureData).filter(
+            SkinTemperatureData.halshare_id.in_(sensor_ids)
+        ).count() if sensor_ids else 0
+        
+    elif sensor_type == "core_temperature":
+        return db.query(CoreTemperatureData).filter(
+            CoreTemperatureData.capsule_id.in_(sensor_ids)
+        ).count() if sensor_ids else 0
+        
+    elif sensor_type == "heart_rate":
+        return db.query(HeartRateData).filter(
+            HeartRateData.sensor_id.in_(sensor_ids)
+        ).count() if sensor_ids else 0
+    
+    return 0
+
+def get_user_sensor_data(db: Session, user_id: str, sensor_type: str, competition_id: str = None) -> list:
+    """JOINクエリでユーザーのセンサーデータを取得"""
+    
+    # マッピング取得
+    mapping_query = db.query(FlexibleSensorMapping).filter_by(
+        user_id=user_id,
+        sensor_type=sensor_type
+    )
+    if competition_id:
+        mapping_query = mapping_query.filter_by(competition_id=competition_id)
+    
+    mappings = mapping_query.all()
+    if not mappings:
+        return []
+    
+    sensor_ids = [m.sensor_id for m in mappings]
+    
+    # センサータイプ別データ取得
+    if sensor_type == "skin_temperature":
+        query = db.query(SkinTemperatureData).filter(
+            SkinTemperatureData.halshare_id.in_(sensor_ids)
+        )
+        if competition_id:
+            query = query.filter_by(competition_id=competition_id)
+        return query.order_by(SkinTemperatureData.datetime).all()
+        
+    elif sensor_type == "core_temperature":
+        query = db.query(CoreTemperatureData).filter(
+            CoreTemperatureData.capsule_id.in_(sensor_ids)
+        )
+        if competition_id:
+            query = query.filter_by(competition_id=competition_id)
+        return query.order_by(CoreTemperatureData.datetime).all()
+        
+    elif sensor_type == "heart_rate":
+        query = db.query(HeartRateData).filter(
+            HeartRateData.sensor_id.in_(sensor_ids)
+        )
+        if competition_id:
+            query = query.filter_by(competition_id=competition_id)
+        return query.order_by(HeartRateData.time).all()
+    
+    return []
 
 # ===== 大会管理 =====
 
@@ -486,9 +554,7 @@ async def get_competitions(
             "date": comp.date,
             "location": comp.location,
             "description": comp.description,
-            "is_active": comp.is_active,
             "created_at": comp.created_at,
-            "updated_at": comp.updated_at,
             "participant_count": participant_count,
             "sensor_data_count": sensor_data_count
         })
@@ -1362,7 +1428,7 @@ async def get_mapping_status(
     db: Session = Depends(get_db),
     current_admin: AdminUser = Depends(get_current_admin)
 ):
-    """マッピング状況取得"""
+    """マッピング状況取得（シンプル化版）"""
     
     query = db.query(FlexibleSensorMapping)
     if competition_id:
@@ -1370,9 +1436,8 @@ async def get_mapping_status(
     
     mappings = query.all()
     
-    # 統計計算
+    # 基本統計
     total_mappings = len(mappings)
-    active_mappings = len([m for m in mappings if m.is_active])
     
     # センサータイプ別統計
     by_sensor_type = {}
@@ -1390,27 +1455,97 @@ async def get_mapping_status(
             user_mapping_status[user_id] = {
                 'skin_temperature': False,
                 'core_temperature': False,
-                'heart_rate': False
+                'heart_rate': False,
+                'race_record': False
             }
         
-        if mapping.sensor_type in [SensorType.SKIN_TEMPERATURE, SensorType.CORE_TEMPERATURE, SensorType.HEART_RATE]:
+        if mapping.sensor_type.value in user_mapping_status[user_id]:
             user_mapping_status[user_id][mapping.sensor_type.value] = True
     
-    # 完全マッピング済みユーザー数
+    # 完全マッピング済みユーザー数（3つのセンサー全てマップ済み）
     fully_mapped_users = len([
         user for user, status in user_mapping_status.items()
-        if all(status.values())
+        if status['skin_temperature'] and status['core_temperature'] and status['heart_rate']
     ])
     
     return {
         "total_mappings": total_mappings,
-        "active_mappings": active_mappings,
         "mappings_by_sensor_type": by_sensor_type,
         "total_users_with_mappings": len(user_mapping_status),
         "fully_mapped_users": fully_mapped_users,
         "competition_id": competition_id,
         "user_mapping_details": user_mapping_status
     }
+
+@router.get("/sensor-data/coverage")  
+async def get_sensor_data_coverage(
+    competition_id: Optional[str] = Query(None),
+    db: Session = Depends(get_db),
+    current_admin: AdminUser = Depends(get_current_admin)
+):
+    """センサーデータのカバレッジ統計（新機能）"""
+    
+    try:
+        # マッピングされているセンサーIDを取得
+        mapping_query = db.query(FlexibleSensorMapping)
+        if competition_id:
+            mapping_query = mapping_query.filter_by(competition_id=competition_id)
+        
+        mappings = mapping_query.all()
+        
+        # センサータイプ別にマッピング済みセンサーIDを分類
+        mapped_skin_sensors = {m.sensor_id for m in mappings if m.sensor_type == SensorType.SKIN_TEMPERATURE}
+        mapped_core_sensors = {m.sensor_id for m in mappings if m.sensor_type == SensorType.CORE_TEMPERATURE}
+        mapped_heart_sensors = {m.sensor_id for m in mappings if m.sensor_type == SensorType.HEART_RATE}
+        
+        # 実際のセンサーデータから全センサーIDを取得
+        skin_query = db.query(SkinTemperatureData.halshare_id).distinct()
+        core_query = db.query(CoreTemperatureData.capsule_id).distinct()
+        heart_query = db.query(HeartRateData.sensor_id).distinct()
+        
+        if competition_id:
+            skin_query = skin_query.filter_by(competition_id=competition_id)
+            core_query = core_query.filter_by(competition_id=competition_id)  
+            heart_query = heart_query.filter_by(competition_id=competition_id)
+        
+        all_skin_sensors = {row[0] for row in skin_query.all()}
+        all_core_sensors = {row[0] for row in core_query.all()}
+        all_heart_sensors = {row[0] for row in heart_query.all()}
+        
+        # マッピング済み・未マッピングの集計
+        def calculate_coverage(all_sensors, mapped_sensors):
+            total = len(all_sensors)
+            mapped = len(all_sensors & mapped_sensors)  # 交集合
+            unmapped = total - mapped
+            coverage_rate = round((mapped / max(total, 1)) * 100, 2)
+            return {
+                "total_sensors": total,
+                "mapped_sensors": mapped,
+                "unmapped_sensors": unmapped,
+                "coverage_rate": coverage_rate,
+                "unmapped_sensor_ids": list(all_sensors - mapped_sensors)
+            }
+        
+        return {
+            "competition_id": competition_id,
+            "skin_temperature": calculate_coverage(all_skin_sensors, mapped_skin_sensors),
+            "core_temperature": calculate_coverage(all_core_sensors, mapped_core_sensors),
+            "heart_rate": calculate_coverage(all_heart_sensors, mapped_heart_sensors),
+            "summary": {
+                "total_unique_sensors": len(all_skin_sensors) + len(all_core_sensors) + len(all_heart_sensors),
+                "total_mapped_sensors": len(mapped_skin_sensors) + len(mapped_core_sensors) + len(mapped_heart_sensors),
+                "overall_coverage_rate": round((
+                    (len(mapped_skin_sensors) + len(mapped_core_sensors) + len(mapped_heart_sensors)) / 
+                    max(len(all_skin_sensors) + len(all_core_sensors) + len(all_heart_sensors), 1)
+                ) * 100, 2)
+            }
+        }
+        
+    except Exception as e:
+        error_message = f"センサーデータカバレッジ取得エラー: {str(e)}"
+        print(f"❌ {error_message}")
+        raise HTTPException(status_code=500, detail=error_message)
+
 
 # ===== 未マッピングデータサマリー =====
 
@@ -1563,8 +1698,7 @@ async def apply_existing_sensor_mapping(competition_id: str, db: Session) -> dic
         # 体表温データマッピング適用
         skin_mappings = db.query(FlexibleSensorMapping).filter_by(
             competition_id=competition_id,
-            sensor_type=SensorType.SKIN_TEMPERATURE,
-            is_active=True
+            sensor_type=SensorType.SKIN_TEMPERATURE
         ).all()
         
         for mapping in skin_mappings:
@@ -1578,8 +1712,7 @@ async def apply_existing_sensor_mapping(competition_id: str, db: Session) -> dic
         # カプセル体温データマッピング適用
         core_mappings = db.query(FlexibleSensorMapping).filter_by(
             competition_id=competition_id,
-            sensor_type=SensorType.CORE_TEMPERATURE,
-            is_active=True
+            sensor_type=SensorType.CORE_TEMPERATURE
         ).all()
         
         for mapping in core_mappings:
@@ -1593,8 +1726,7 @@ async def apply_existing_sensor_mapping(competition_id: str, db: Session) -> dic
         # 心拍データマッピング適用
         heart_mappings = db.query(FlexibleSensorMapping).filter_by(
             competition_id=competition_id,
-            sensor_type=SensorType.HEART_RATE,
-            is_active=True
+            sensor_type=SensorType.HEART_RATE
         ).all()
         
         for mapping in heart_mappings:
@@ -1631,8 +1763,7 @@ async def apply_race_number_mapping(competition_id: str, db: Session) -> dict:
         # 🆕 RACE_RECORDタイプのマッピングを取得
         race_mappings = db.query(FlexibleSensorMapping).filter_by(
             competition_id=competition_id,
-            sensor_type=SensorType.RACE_RECORD,  # 🔄 変更点
-            is_active=True
+            sensor_type=SensorType.RACE_RECORD
         ).all()
         
         print(f"🏃 大会記録マッピング数: {len(race_mappings)}")
@@ -1783,8 +1914,8 @@ async def bulk_create_users(
                     username=user_id,  # usernameはuser_idと同じに設定
                     full_name=name,
                     email=email,
-                    hashed_password=get_password_hash(password),
                     is_active=True,
+                    hashed_password=get_password_hash(password),
                     created_at=datetime.utcnow()
                 )
                 
@@ -1833,7 +1964,7 @@ async def delete_user(
     db: Session = Depends(get_db),
     current_admin: AdminUser = Depends(get_current_admin)
 ):
-    """ユーザーを削除（仕様書5.1対応）"""
+    """ユーザーを削除（JOIN修正版）"""
     
     # ユーザー存在チェック
     user = db.query(User).filter_by(user_id=user_id).first()
@@ -1844,27 +1975,20 @@ async def delete_user(
         )
     
     try:
-        # 関連データの確認
-        sensor_data_count = (
-            db.query(SkinTemperatureData).filter_by(mapped_user_id=user_id).count() +
-            db.query(CoreTemperatureData).filter_by(mapped_user_id=user_id).count() +
-            db.query(HeartRateData).filter_by(mapped_user_id=user_id).count()
-        )
+        # JOINベースで関連データ数を確認
+        skin_temp_count = get_user_sensor_data_count(db, user_id, "skin_temperature")
+        core_temp_count = get_user_sensor_data_count(db, user_id, "core_temperature")
+        heart_rate_count = get_user_sensor_data_count(db, user_id, "heart_rate")
         
         race_records_count = db.query(RaceRecord).filter_by(user_id=user_id).count()
         mapping_count = db.query(FlexibleSensorMapping).filter_by(user_id=user_id).count()
         
-        # 関連データを削除
-        if sensor_data_count > 0:
-            db.query(SkinTemperatureData).filter_by(mapped_user_id=user_id).delete()
-            db.query(CoreTemperatureData).filter_by(mapped_user_id=user_id).delete()
-            db.query(HeartRateData).filter_by(mapped_user_id=user_id).delete()
+        # マッピングを削除（センサーデータは残す - 正規化設計）
+        db.query(FlexibleSensorMapping).filter_by(user_id=user_id).delete()
         
+        # 大会記録は削除（user_idと直接関連）
         if race_records_count > 0:
             db.query(RaceRecord).filter_by(user_id=user_id).delete()
-        
-        if mapping_count > 0:
-            db.query(FlexibleSensorMapping).filter_by(user_id=user_id).delete()
         
         # ユーザー削除
         user_name = user.full_name or user.username
@@ -1874,10 +1998,10 @@ async def delete_user(
         return {
             "message": f"ユーザー '{user_name}' (ID: {user_id}) を削除しました",
             "deleted_data": {
-                "sensor_data": sensor_data_count,
                 "race_records": race_records_count,
                 "mappings": mapping_count
-            }
+            },
+            "note": f"センサーデータ {skin_temp_count + core_temp_count + heart_rate_count} 件は保持されます（正規化設計）"
         }
         
     except Exception as e:
@@ -1936,7 +2060,7 @@ async def get_user_data_summary(
     db: Session = Depends(get_db),
     current_admin: AdminUser = Depends(get_current_admin)
 ):
-    """ユーザーのデータサマリー取得（詳細画面用）"""
+    """ユーザーのデータサマリー取得（JOINベース修正版）"""
     
     # ユーザー存在チェック
     user = db.query(User).filter_by(user_id=user_id).first()
@@ -1944,10 +2068,10 @@ async def get_user_data_summary(
         raise HTTPException(status_code=404, detail="ユーザーが見つかりません")
     
     try:
-        # センサーデータ統計
-        skin_temp_count = db.query(SkinTemperatureData).filter_by(mapped_user_id=user_id).count()
-        core_temp_count = db.query(CoreTemperatureData).filter_by(mapped_user_id=user_id).count()
-        heart_rate_count = db.query(HeartRateData).filter_by(mapped_user_id=user_id).count()
+        # JOINクエリでセンサーデータ統計を取得
+        skin_temp_count = _get_user_sensor_data_count_helper(db, user_id, "skin_temperature")
+        core_temp_count = _get_user_sensor_data_count_helper(db, user_id, "core_temperature") 
+        heart_rate_count = _get_user_sensor_data_count_helper(db, user_id, "heart_rate")
         
         # 参加大会一覧
         race_records = db.query(RaceRecord).filter_by(user_id=user_id).all()
@@ -1981,86 +2105,82 @@ async def get_user_data_summary(
             detail=f"データサマリー取得エラー: {str(e)}"
         )
 
-@router.get("/users/{user_id}/sensor-data")
-async def get_user_sensor_data(
-    user_id: str,
-    competition_id: Optional[str] = Query(None),
-    db: Session = Depends(get_db),
-    current_admin: AdminUser = Depends(get_current_admin)
-):
-    """ユーザーのセンサーデータ詳細取得（表形式表示用）"""
+# 🔧 センサーデータ取得用のヘルパー関数
+def _get_user_sensor_data_count_helper(db: Session, user_id: str, sensor_type: str, competition_id: str = None) -> int:
+    """JOINクエリでユーザーのセンサーデータ数を取得"""
     
-    # ユーザー存在チェック
-    user = db.query(User).filter_by(user_id=user_id).first()
-    if not user:
-        raise HTTPException(status_code=404, detail="ユーザーが見つかりません")
+    # マッピング取得
+    mapping_query = db.query(FlexibleSensorMapping).filter_by(
+        user_id=user_id,
+        sensor_type=sensor_type
+    )
+    if competition_id:
+        mapping_query = mapping_query.filter_by(competition_id=competition_id)
     
-    try:
-        sensor_data = []
+    mappings = mapping_query.all()
+    if not mappings:
+        return 0
+    
+    sensor_ids = [m.sensor_id for m in mappings]
+    
+    # センサータイプ別データ数取得
+    if sensor_type == "skin_temperature":
+        return db.query(SkinTemperatureData).filter(
+            SkinTemperatureData.halshare_id.in_(sensor_ids)
+        ).count() if sensor_ids else 0
         
-        # 体表温データ
-        skin_temp_query = db.query(SkinTemperatureData).filter_by(mapped_user_id=user_id)
-        if competition_id:
-            skin_temp_query = skin_temp_query.filter_by(competition_id=competition_id)
+    elif sensor_type == "core_temperature":
+        return db.query(CoreTemperatureData).filter(
+            CoreTemperatureData.capsule_id.in_(sensor_ids)
+        ).count() if sensor_ids else 0
         
-        skin_temp_records = skin_temp_query.all()
-        if skin_temp_records:
-            latest_record = max(skin_temp_records, key=lambda x: x.timestamp)
-            earliest_record = min(skin_temp_records, key=lambda x: x.timestamp)
-            
-            sensor_data.append({
-                "sensor_type": "体表温センサー",
-                "sensor_id": skin_temp_records[0].halshare_id,
-                "record_count": len(skin_temp_records),
-                "latest_record": latest_record.timestamp.isoformat(),
-                "data_range": f"{earliest_record.timestamp.strftime('%H:%M')} - {latest_record.timestamp.strftime('%H:%M')}"
-            })
-        
-        # カプセル体温データ
-        core_temp_query = db.query(CoreTemperatureData).filter_by(mapped_user_id=user_id)
-        if competition_id:
-            core_temp_query = core_temp_query.filter_by(competition_id=competition_id)
-        
-        core_temp_records = core_temp_query.all()
-        if core_temp_records:
-            latest_record = max(core_temp_records, key=lambda x: x.timestamp)
-            earliest_record = min(core_temp_records, key=lambda x: x.timestamp)
-            
-            sensor_data.append({
-                "sensor_type": "カプセル体温センサー",
-                "sensor_id": f"{core_temp_records[0].capsule_id}@{core_temp_records[0].monitor_id}",
-                "record_count": len(core_temp_records),
-                "latest_record": latest_record.timestamp.isoformat(),
-                "data_range": f"{earliest_record.timestamp.strftime('%H:%M')} - {latest_record.timestamp.strftime('%H:%M')}"
-            })
-        
-        # 心拍データ
-        heart_rate_query = db.query(HeartRateData).filter_by(mapped_user_id=user_id)
-        if competition_id:
-            heart_rate_query = heart_rate_query.filter_by(competition_id=competition_id)
-        
-        heart_rate_records = heart_rate_query.all()
-        if heart_rate_records:
-            latest_record = max(heart_rate_records, key=lambda x: x.timestamp)
-            earliest_record = min(heart_rate_records, key=lambda x: x.timestamp)
-            
-            sensor_data.append({
-                "sensor_type": "心拍センサー",
-                "sensor_id": heart_rate_records[0].sensor_id,
-                "record_count": len(heart_rate_records),
-                "latest_record": latest_record.timestamp.isoformat(),
-                "data_range": f"{earliest_record.timestamp.strftime('%H:%M')} - {latest_record.timestamp.strftime('%H:%M')}"
-            })
-        
-        return {
-            "user_id": user_id,
-            "competition_id": competition_id,
-            "sensor_data": sensor_data
-        }
-        
-    except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"センサーデータ取得エラー: {str(e)}"
-        )
+    elif sensor_type == "heart_rate":
+        return db.query(HeartRateData).filter(
+            HeartRateData.sensor_id.in_(sensor_ids)
+        ).count() if sensor_ids else 0
+    
+    return 0
 
+def _get_user_sensor_data_helper(db: Session, user_id: str, sensor_type: str, competition_id: str = None) -> list:
+    """JOINクエリでユーザーのセンサーデータを取得"""
+    
+    # マッピング取得
+    mapping_query = db.query(FlexibleSensorMapping).filter_by(
+        user_id=user_id,
+        sensor_type=sensor_type
+    )
+    if competition_id:
+        mapping_query = mapping_query.filter_by(competition_id=competition_id)
+    
+    mappings = mapping_query.all()
+    if not mappings:
+        return []
+    
+    sensor_ids = [m.sensor_id for m in mappings]
+    
+    # センサータイプ別データ取得
+    if sensor_type == "skin_temperature":
+        query = db.query(SkinTemperatureData).filter(
+            SkinTemperatureData.halshare_id.in_(sensor_ids)
+        )
+        if competition_id:
+            query = query.filter_by(competition_id=competition_id)
+        return query.order_by(SkinTemperatureData.datetime).all()
+        
+    elif sensor_type == "core_temperature":
+        query = db.query(CoreTemperatureData).filter(
+            CoreTemperatureData.capsule_id.in_(sensor_ids)
+        )
+        if competition_id:
+            query = query.filter_by(competition_id=competition_id)
+        return query.order_by(CoreTemperatureData.datetime).all()
+        
+    elif sensor_type == "heart_rate":
+        query = db.query(HeartRateData).filter(
+            HeartRateData.sensor_id.in_(sensor_ids)
+        )
+        if competition_id:
+            query = query.filter_by(competition_id=competition_id)
+        return query.order_by(HeartRateData.time).all()
+    
+    return []

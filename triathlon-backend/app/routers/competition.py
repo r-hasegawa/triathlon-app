@@ -23,7 +23,6 @@ class CompetitionUpdate(BaseModel):
     date: Optional[date] = None
     location: Optional[str] = None
     description: Optional[str] = None
-    is_active: Optional[bool] = None
 
 class CompetitionResponse(BaseModel):
     id: int
@@ -32,7 +31,6 @@ class CompetitionResponse(BaseModel):
     date: Optional[date]
     location: Optional[str]
     description: Optional[str]
-    is_active: bool
     created_at: datetime
     updated_at: Optional[datetime]
     participant_count: Optional[int] = 0
@@ -103,12 +101,7 @@ async def list_competitions_admin(
     current_admin = Depends(get_current_admin)
 ):
     """大会一覧取得（管理者用）"""
-    query = db.query(Competition)
-    
-    if not include_inactive:
-        query = query.filter(Competition.is_active == True)
-    
-    competitions = query.order_by(Competition.date.desc()).all()
+    competitions = db.query(Competition).order_by(Competition.date.desc()).all()
     
     result = []
     for comp in competitions:
@@ -225,8 +218,7 @@ async def get_my_competitions(
 ):
     """自分が参加した大会一覧"""
     competitions = db.query(Competition).join(RaceRecord).filter(
-        RaceRecord.user_id == current_user.user_id,
-        Competition.is_active == True
+        RaceRecord.user_id == current_user.user_id
     ).distinct().order_by(Competition.date.desc()).all()
     
     return [CompetitionResponse.from_orm(comp) for comp in competitions]
@@ -238,9 +230,7 @@ async def get_public_competitions(
     db: Session = Depends(get_db)
 ):
     """公開大会一覧（認証不要）"""
-    competitions = db.query(Competition).filter(
-        Competition.is_active == True
-    ).order_by(Competition.date.desc()).all()
+    competitions = db.query(Competition).order_by(Competition.date.desc()).all()
     
     return [CompetitionResponse.from_orm(comp) for comp in competitions]
 
@@ -251,8 +241,7 @@ async def get_competition_detail(
 ):
     """大会詳細情報取得（認証不要）"""
     competition = db.query(Competition).filter_by(
-        competition_id=competition_id,
-        is_active=True
+        competition_id=competition_id
     ).first()
     
     if not competition:

@@ -27,7 +27,6 @@ export interface Competition {
   date: string | null;
   location: string | null;
   description: string | null;
-  is_active: boolean;
   created_at: string;
   updated_at: string | null;
 }
@@ -38,7 +37,6 @@ export interface User {
   username: string;
   full_name: string;
   email: string;
-  is_active: boolean;
   created_at: string;
 }
 
@@ -48,6 +46,5 @@ export interface Admin {
   username: string;
   full_name: string;
   email: string;
-  is_active: boolean;
   created_at: string;
 }
