@@ -23,6 +23,7 @@ class SensorType(str, enum.Enum):
     SKIN_TEMPERATURE = "skin_temperature"     # 体表温（halshare）
     CORE_TEMPERATURE = "core_temperature"     # カプセル体温（e-Celcius）
     HEART_RATE = "heart_rate"                 # 心拍（Garmin）
+    RACE_RECORD = "race_record"               # 🆕 大会記録
     WBGT = "wbgt"                            # WBGT環境データ
     OTHER = "other"                          # その他
 
@@ -214,21 +215,20 @@ class UploadBatch(Base):
 # === センサーマッピング ===
 
 class FlexibleSensorMapping(Base):
-    """柔軟なセンサーマッピング"""
+    """柔軟なセンサーマッピング（改善版）"""
     __tablename__ = "flexible_sensor_mappings"
     
     id = Column(Integer, primary_key=True, index=True)
-    sensor_id = Column(String(100), nullable=False, index=True)
+    sensor_id = Column(String(100), nullable=False, index=True)  # 大会記録の場合はゼッケン番号
     sensor_type = Column(Enum(SensorType), nullable=False, index=True)
     user_id = Column(String(50), ForeignKey("users.user_id"), nullable=False, index=True)
     competition_id = Column(String(50), ForeignKey("competitions.competition_id"), nullable=True, index=True)
     
-    # 🆕 ゼッケン番号カラム追加
-    race_number = Column(String(20), nullable=True, index=True)
-
+    # 🔴 race_numberカラムを削除（冗長のため）
+    
     # マッピング詳細
     subject_name = Column(String(255), nullable=True)
-    device_type = Column(String(100), nullable=True)
+    device_type = Column(String(100), nullable=True)  # 'race_record', 'research', etc.
     notes = Column(Text, nullable=True)
     
     # 適用期間
@@ -243,7 +243,7 @@ class FlexibleSensorMapping(Base):
     user = relationship("User", foreign_keys=[user_id])
     competition = relationship("Competition")
     
-    # ユニーク制約を修正：sensor_id + sensor_type + competition_id の組み合わせで一意
+    # ユニーク制約：sensor_id + sensor_type + competition_id の組み合わせで一意
     __table_args__ = (
         Index('idx_sensor_mapping_unique', 'sensor_id', 'sensor_type', 'competition_id', unique=True),
         Index('idx_user_sensor_type', 'user_id', 'sensor_type', 'competition_id'),

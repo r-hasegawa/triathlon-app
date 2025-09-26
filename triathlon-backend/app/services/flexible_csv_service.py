@@ -256,17 +256,12 @@ class FlexibleCSVService:
 
     async def process_mapping_data(
         self, 
-        mapping_file: UploadFile, 
+        mapping_file, 
         competition_id: str, 
-        db: Session, 
+        db: Session,
         overwrite: bool = True
     ) -> dict:
-        """
-        マッピングデータ処理（修正版）
-        
-        拡張CSV構造:
-        user_id,race_number,skin_temp_sensor_id,core_temp_sensor_id,heart_rate_sensor_id,subject_name
-        """
+        """マッピングデータ処理（改善版 - race_number削除、RACE_RECORD追加）"""
         
         try:
             # 大会存在チェック  
@@ -280,7 +275,7 @@ class FlexibleCSVService:
                 existing_count = db.query(FlexibleSensorMapping).filter_by(competition_id=competition_id).delete()
                 print(f"既存マッピング削除: {existing_count}件")
             
-            # CSVファイル読み込み（修正版）
+            # CSVファイル読み込み
             content = await mapping_file.read()
             encoding = self._detect_encoding(content)
             
@@ -290,15 +285,15 @@ class FlexibleCSVService:
             except UnicodeDecodeError as e:
                 print(f"エンコーディングエラー({encoding}): {e}")
                 # フォールバック処理
-                try:
-                    df = pd.read_csv(BytesIO(content), encoding='utf-8')
-                    print("UTF-8で再試行成功")
-                except Exception as e2:
+                for fallback_encoding in ['utf-8', 'shift_jis', 'cp932']:
                     try:
-                        df = pd.read_csv(BytesIO(content), encoding='shift_jis')
-                        print("Shift-JISで再試行成功")
-                    except Exception as e3:
-                        raise HTTPException(status_code=400, detail=f"CSVファイル読み込み失敗: {str(e3)}")
+                        df = pd.read_csv(BytesIO(content), encoding=fallback_encoding)
+                        print(f"{fallback_encoding}で再試行成功")
+                        break
+                    except Exception:
+                        continue
+                else:
+                    raise HTTPException(status_code=400, detail="CSVファイル読み込み失敗")
             
             if df.empty:
                 raise HTTPException(status_code=400, detail="CSVファイルが空です")
@@ -318,14 +313,6 @@ class FlexibleCSVService:
             if 'user_id' not in df.columns:
                 raise HTTPException(status_code=400, detail="user_id列が必要です")
             
-            # user_id重複チェック
-            duplicate_users = df[df['user_id'].duplicated()]['user_id'].tolist()
-            if duplicate_users:
-                raise HTTPException(
-                    status_code=400, 
-                    detail=f"user_idに重複があります: {duplicate_users}"
-                )
-            
             # 認識するセンサー列
             recognized_sensor_columns = {
                 'skin_temp_sensor_id': SensorType.SKIN_TEMPERATURE,
@@ -338,15 +325,6 @@ class FlexibleCSVService:
             
             available_sensor_columns = [col for col in df.columns if col in recognized_sensor_columns]
             has_race_number = 'race_number' in df.columns
-            
-            print(f"📊 認識可能な列: {available_sensor_columns}")
-            print(f"📊 ゼッケン番号列: {has_race_number}")
-            
-            if not available_sensor_columns and not has_race_number:
-                raise HTTPException(
-                    status_code=400, 
-                    detail=f"認識可能な列がありません。必要: user_id, センサーID列またはrace_number列"
-                )
             
             processed = 0
             skipped = 0
@@ -371,7 +349,7 @@ class FlexibleCSVService:
                 
                 user_mappings_created = 0
                 
-                # ゼッケン番号マッピング処理
+                # 🆕 大会記録マッピング処理（改善版）
                 if has_race_number:
                     race_number = str(row.get('race_number', '')).strip()
                     if race_number and race_number != 'nan':
@@ -379,21 +357,21 @@ class FlexibleCSVService:
                             race_mapping = FlexibleSensorMapping(
                                 user_id=user_id,
                                 competition_id=competition_id,
-                                sensor_id=race_number,
-                                sensor_type=SensorType.OTHER,
-                                race_number=race_number,
+                                sensor_id=race_number,                    # ゼッケン番号をsensor_idに格納
+                                sensor_type=SensorType.RACE_RECORD,       # 🆕 RACE_RECORDに変更
                                 subject_name=str(row.get('subject_name', '')).strip() or None,
-                                device_type='race_number',
+                                device_type='race_record',                # 🔄 device_typeも変更
                                 is_active=True,
                                 created_at=datetime.now()
                             )
                             db.add(race_mapping)
                             user_mappings_created += 1
                             race_number_mappings += 1
+                            print(f"✅ 大会記録マッピング作成: user={user_id}, race_number={race_number}")
                         except Exception as e:
-                            errors.append(f"行{index+1}: ゼッケン番号マッピングエラー - {str(e)}")
+                            errors.append(f"行{index+1}: 大会記録マッピングエラー - {str(e)}")
                 
-                # センサーマッピング処理
+                # センサーマッピング処理（既存と同じ）
                 for col_name in available_sensor_columns:
                     sensor_id_raw = row.get(col_name)
                     
@@ -456,37 +434,35 @@ class FlexibleCSVService:
                 "errors": [error_message]
             }
 
-    # === 🆕 マッピング適用処理の拡張 ===
+    # 🆕 大会記録マッピング適用処理（改善版）
     async def apply_race_number_mapping(
         self,
         competition_id: str,
         db: Session
     ) -> dict:
-        """
-        🆕 ゼッケン番号マッピング適用
-        FlexibleSensorMappingのrace_number情報を使って、
-        RaceRecordのuser_idを設定する
-        """
+        """大会記録マッピング適用（改善版）"""
         
         try:
             from app.models.competition import RaceRecord
             from app.models.flexible_sensor_data import FlexibleSensorMapping
             
-            # ゼッケン番号マッピング取得
+            # 🆕 RACE_RECORDタイプのマッピングを取得
             race_mappings = db.query(FlexibleSensorMapping).filter_by(
                 competition_id=competition_id,
-                device_type='race_number',
+                sensor_type=SensorType.RACE_RECORD,  # 🔄 変更点
                 is_active=True
             ).all()
             
-            print(f"🏃 ゼッケン番号マッピング数: {len(race_mappings)}")
+            print(f"🏃 大会記録マッピング数: {len(race_mappings)}")
             
             applied_count = 0
             errors = []
             
             for mapping in race_mappings:
-                race_number = mapping.race_number
+                race_number = mapping.sensor_id  # 🔄 sensor_idから取得
                 user_id = mapping.user_id
+                
+                print(f"🔍 処理中: race_number={race_number}, user_id={user_id}")
                 
                 # 対応する大会記録を検索・更新
                 race_records = db.query(RaceRecord).filter_by(
@@ -498,25 +474,24 @@ class FlexibleCSVService:
                 for record in race_records:
                     record.user_id = user_id
                     applied_count += 1
-                    print(f"✅ 大会記録マッピング適用: ゼッケン{race_number} -> {user_id}")
+                    print(f"✅ 大会記録マッピング適用: race_number={race_number} → user_id={user_id}")
             
             db.commit()
             
             return {
                 "success": True,
-                "message": f"ゼッケン番号マッピングを{applied_count}件の大会記録に適用しました",
                 "applied_race_records": applied_count,
-                "total_mappings": len(race_mappings)
+                "total_mappings": len(race_mappings),
+                "message": f"大会記録マッピング適用完了: {applied_count}件",
+                "errors": errors
             }
             
         except Exception as e:
             db.rollback()
-            error_message = f"ゼッケン番号マッピング適用エラー: {str(e)}"
+            error_message = f"大会記録マッピング適用エラー: {str(e)}"
             print(f"❌ {error_message}")
-            
             return {
-                "success": False, 
-                "message": error_message,
+                "success": False,
                 "applied_race_records": 0,
                 "errors": [error_message]
             }
