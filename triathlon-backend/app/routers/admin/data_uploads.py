@@ -12,16 +12,19 @@ import io
 
 from app.database import get_db
 from app.models.user import AdminUser
-from app.models.competition import Competition
+from app.models.competition import Competition, RaceRecord
+from app.models.flexible_sensor_data import FlexibleSensorMapping
 from app.schemas.sensor_data import UploadResponse
 from app.utils.dependencies import get_current_admin
 from app.services.flexible_csv_service import FlexibleCSVService
 from .utils import generate_batch_id, detect_encoding
 
+import traceback
+
 router = APIRouter()
 
 
-@router.post("/upload/skin-temperature", response_model=UploadResponse)
+@router.post("/upload/skin-temperature")
 async def upload_skin_temperature_data(
     competition_id: str = Form(...),
     files: List[UploadFile] = File(...),
@@ -29,12 +32,10 @@ async def upload_skin_temperature_data(
     current_admin: AdminUser = Depends(get_current_admin)
 ):
     """体表温データアップロード（halshare形式）"""
-    
     # 大会存在チェック
     competition = db.query(Competition).filter_by(competition_id=competition_id).first()
     if not competition:
         raise HTTPException(status_code=404, detail="指定された大会が見つかりません")
-    
     try:
         service = FlexibleCSVService(db)
         results = []
@@ -57,28 +58,33 @@ async def upload_skin_temperature_data(
             batch_id = generate_batch_id(file.filename)
             
             # データ処理
+            print("===================")
             result = service.process_skin_temperature_csv(
                 csv_string=csv_string,
                 competition_id=competition_id,
                 batch_id=batch_id,
                 filename=file.filename
             )
+
+            print("===================")
             
             results.append(result)
         
-        return UploadResponse(
-            message=f"{len(files)}個のファイルを処理しました",
-            results=results
-        )
+        # return UploadResponse(
+        #     message=f"{len(files)}個のファイルを処理しました",
+        #     results=results
+        # )
+        return {"results": results}
         
     except Exception as e:
         raise HTTPException(
             status_code=500,
             detail=f"体表温データアップロードエラー: {str(e)}"
         )
+        traceback.print_exc()
 
 
-@router.post("/upload/core-temperature", response_model=UploadResponse)
+@router.post("/upload/core-temperature")
 async def upload_core_temperature_data(
     competition_id: str = Form(...),
     files: List[UploadFile] = File(...),
@@ -123,10 +129,11 @@ async def upload_core_temperature_data(
             
             results.append(result)
         
-        return UploadResponse(
-            message=f"{len(files)}個のファイルを処理しました",
-            results=results
-        )
+        # return UploadResponse(
+        #     message=f"{len(files)}個のファイルを処理しました",
+        #     results=results
+        # )
+        return {"results": results}
         
     except Exception as e:
         raise HTTPException(
@@ -135,7 +142,7 @@ async def upload_core_temperature_data(
         )
 
 
-@router.post("/upload/heart-rate", response_model=UploadResponse)
+@router.post("/upload/heart-rate")
 async def upload_heart_rate_data(
     competition_id: str = Form(...),
     files: List[UploadFile] = File(...),
@@ -179,10 +186,11 @@ async def upload_heart_rate_data(
             
             results.append(result)
         
-        return UploadResponse(
-            message=f"{len(files)}個のファイルを処理しました",
-            results=results
-        )
+        # return UploadResponse(
+        #     message=f"{len(files)}個のファイルを処理しました",
+        #     results=results
+        # )
+        return {"results": results}
         
     except Exception as e:
         raise HTTPException(
@@ -407,4 +415,58 @@ async def delete_upload_batch(
         raise HTTPException(
             status_code=500,
             detail=f"バッチ削除エラー: {str(e)}"
+        )
+
+@router.get("/race-records/status")
+async def get_race_record_status(
+    competition_id: str,
+    db: Session = Depends(get_db),
+    current_admin: AdminUser = Depends(get_current_admin)
+):
+    """大会記録状況取得（フロントエンド用）"""
+    
+    try:
+        # 大会存在チェック
+        competition = db.query(Competition).filter_by(competition_id=competition_id).first()
+        if not competition:
+            raise HTTPException(status_code=404, detail="指定された大会が見つかりません")
+        
+        # 該当大会の大会記録取得
+        race_records = db.query(RaceRecord).filter_by(
+            competition_id=competition_id
+        ).all()
+        
+        total_records = len(race_records)
+        
+        # マッピングされている記録数を計算
+        mapped_records = 0
+        unmapped_records = 0
+        
+        for record in race_records:
+            # このuser_idと大会でマッピングが存在するかチェック
+            mapping_exists = db.query(FlexibleSensorMapping).filter_by(
+                user_id=record.user_id,
+                competition_id=competition_id
+            ).first()
+            
+            if mapping_exists:
+                mapped_records += 1
+            else:
+                unmapped_records += 1
+        
+        # マッピングカバレッジ計算
+        mapping_coverage = (mapped_records / total_records * 100) if total_records > 0 else 0
+        
+        return {
+            "total_records": total_records,
+            "mapped_records": mapped_records,
+            "unmapped_records": unmapped_records,
+            "mapping_coverage": round(mapping_coverage, 1),
+            "competition_id": competition_id
+        }
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"大会記録状況取得エラー: {str(e)}"
         )

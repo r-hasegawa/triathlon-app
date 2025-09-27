@@ -443,3 +443,71 @@ async def validate_mappings(
             status_code=500,
             detail=f"マッピング検証エラー: {str(e)}"
         )
+
+@router.get("/mapping/status")
+async def get_mapping_status(
+    competition_id: str,
+    db: Session = Depends(get_db),
+    current_admin: AdminUser = Depends(get_current_admin)
+):
+    """マッピング状況取得（フロントエンド用）"""
+    
+    try:
+        # 大会存在チェック
+        competition = db.query(Competition).filter_by(competition_id=competition_id).first()
+        if not competition:
+            raise HTTPException(status_code=404, detail="指定された大会が見つかりません")
+        
+        # 該当大会のマッピング取得
+        mappings = db.query(FlexibleSensorMapping).filter_by(
+            competition_id=competition_id
+        ).all()
+        
+        # 統計計算
+        total_mappings = len(mappings)
+        active_mappings = total_mappings  # 物理削除なので全て有効
+        
+        # ユーザー単位での集計
+        users_with_mappings = set()
+        fully_mapped_users = []
+        mappings_by_sensor_type = {
+            "skin_temperature": 0,
+            "core_temperature": 0, 
+            "heart_rate": 0,
+            "race_record": 0
+        }
+        
+        for mapping in mappings:
+            users_with_mappings.add(mapping.user_id)
+            
+            # センサータイプ別カウント
+            if mapping.skin_temp_sensor_id:
+                mappings_by_sensor_type["skin_temperature"] += 1
+            if mapping.core_temp_sensor_id:
+                mappings_by_sensor_type["core_temperature"] += 1
+            if mapping.heart_rate_sensor_id:
+                mappings_by_sensor_type["heart_rate"] += 1
+            if mapping.race_record_id:
+                mappings_by_sensor_type["race_record"] += 1
+            
+            # 完全マッピングユーザー判定（必要なセンサーがすべて設定されている）
+            if (mapping.skin_temp_sensor_id and 
+                mapping.core_temp_sensor_id and 
+                mapping.heart_rate_sensor_id and 
+                mapping.race_record_id):
+                fully_mapped_users.append(mapping.user_id)
+        
+        return {
+            "total_mappings": total_mappings,
+            "active_mappings": active_mappings,
+            "total_users_with_mappings": len(users_with_mappings),
+            "fully_mapped_users": len(set(fully_mapped_users)),
+            "mappings_by_sensor_type": mappings_by_sensor_type,
+            "competition_id": competition_id
+        }
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"マッピング状況取得エラー: {str(e)}"
+        )

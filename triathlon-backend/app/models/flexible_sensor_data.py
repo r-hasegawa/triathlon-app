@@ -31,6 +31,7 @@ class UploadStatus(str, enum.Enum):
     SUCCESS = "success"
     FAILED = "failed"
     PARTIAL = "partial"
+    PROCESSING = "processing"
 
 # === 実際のデータ形式に対応した専用テーブル ===
 
@@ -124,18 +125,15 @@ class UploadBatch(Base):
     
     # ファイル情報
     file_name = Column(String(255), nullable=False)
-    file_size = Column(Integer, nullable=True)
     
     # 処理結果
     total_records = Column(Integer, nullable=False)
-    success_records = Column(Integer, nullable=False)
-    failed_records = Column(Integer, nullable=False)
+    success_records = Column(Integer, nullable=False, default=0)
+    failed_records = Column(Integer, nullable=False, default=0)
     status = Column(Enum(UploadStatus), nullable=False)
     
     # メタデータ
-    uploaded_by = Column(String(100), nullable=True)
     uploaded_at = Column(DateTime, server_default=func.now())
-    notes = Column(Text, nullable=True)
     
     # リレーション
     competition = relationship("Competition")

@@ -60,15 +60,11 @@ async def get_upload_batches(
                 "sensor_type": batch.sensor_type.value if batch.sensor_type else None,
                 "competition_id": batch.competition_id,
                 "file_name": batch.file_name,
-                "file_size": batch.file_size,
                 "total_records": batch.total_records,
                 "success_records": batch.success_records,
                 "failed_records": batch.failed_records,
                 "status": batch.status.value if batch.status else None,
-                "uploaded_at": batch.uploaded_at.isoformat() if batch.uploaded_at else None,
-                "uploaded_by": batch.uploaded_by,
-                "notes": batch.notes,
-                "error_message": batch.error_message
+                "uploaded_at": batch.uploaded_at.isoformat() if batch.uploaded_at else None
             }
             batch_list.append(batch_data)
         

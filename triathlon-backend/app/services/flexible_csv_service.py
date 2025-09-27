@@ -26,6 +26,486 @@ from app.schemas.sensor_data import (
 )
 
 class FlexibleCSVService:
+    def __init__(self, db: Session):
+        """コンストラクタ"""
+        self.db = db
+
+    def process_skin_temperature_csv(
+        self,
+        csv_string: str,
+        competition_id: str,
+        batch_id: str,
+        filename: str
+    ) -> dict:
+        """体表温データ処理（halshare形式）"""
+        try:
+            # CSV読み込み
+            df = pd.read_csv(io.StringIO(csv_string))
+            
+            # 列名の正規化
+            df.columns = df.columns.str.strip()
+            
+            # 必要な列の確認
+            required_columns = ['halshareWearerName', 'halshareId', 'datetime', 'temperature']
+            missing_columns = [col for col in required_columns if col not in df.columns]
+            
+            if missing_columns:
+                return {
+                    "filename": filename,
+                    "status": "error",
+                    "message": f"必要な列が不足しています: {missing_columns}"
+                }
+            
+            processed = 0
+            errors = []
+            sensor_ids = set()
+            
+            # UploadBatch作成
+            upload_batch = UploadBatch(
+                batch_id=batch_id,
+                sensor_type=SensorType.SKIN_TEMPERATURE,
+                file_name=filename,
+                competition_id=competition_id,
+                total_records=len(df),
+                status=UploadStatus.PROCESSING,
+                uploaded_at=datetime.now()
+            )
+            self.db.add(upload_batch)
+            for index, row in df.iterrows():
+                try:
+                    # データ抽出
+                    halshare_id = str(row['halshareId']).strip()
+                    datetime_str = str(row['datetime']).strip()
+                    temperature = float(row['temperature'])
+
+
+                    # クォート除去処理
+                    if halshare_id.startswith(' "') and halshare_id.endswith('"'):
+                        halshare_id = halshare_id[2:-1]  # ' "値" → 値
+                    elif halshare_id.startswith('"') and halshare_id.endswith('"'):
+                        halshare_id = halshare_id[1:-1]   # "値" → 値
+                    
+                    if datetime_str.startswith(' "') and datetime_str.endswith('"'):
+                        datetime_str = datetime_str[2:-1]  # ' "日時" → 日時
+                    elif datetime_str.startswith('"') and datetime_str.endswith('"'):
+                        datetime_str = datetime_str[1:-1]   # "日時" → 日時
+                    
+                    # 最終的な空白除去
+                    halshare_id = halshare_id.strip()
+                    datetime_str = datetime_str.strip()
+                    
+                    # 必須項目チェック
+                    if not halshare_id or not datetime_str or not temperature:
+                        errors.append(f"行{index+1}: 必須項目が不足")
+                        continue
+                    
+                    # 日時パース
+                    try:
+                        parsed_datetime = pd.to_datetime(datetime_str)
+                    except:
+                        errors.append(f"行{index+1}: 日時形式エラー")
+                        continue
+
+                    # SkinTemperatureData作成
+                    skin_data = SkinTemperatureData(
+                        halshare_id=halshare_id,
+                        datetime=parsed_datetime,
+                        temperature=temperature,
+                        competition_id=competition_id,
+                        upload_batch_id=batch_id,
+                        uploaded_at=datetime.now()
+                    )
+                    
+                    self.db.add(skin_data)
+                    processed += 1
+                    sensor_ids.add(halshare_id)
+                    
+                except Exception as e:
+                    errors.append(f"行{index+1}: {str(e)}")
+                    continue
+            # バッチ状態更新
+            upload_batch.success_records = processed
+            upload_batch.failed_records = len(errors)
+            upload_batch.status = UploadStatus.SUCCESS if processed > 0 else UploadStatus.FAILED
+            
+            self.db.commit()
+            
+            return {
+                "file": filename,
+                "status": UploadStatus.SUCCESS if processed > 0 else UploadStatus.FAILED,
+                "total": len(df),
+                "success": processed,
+                "failed": len(errors),
+                "sensor_ids": list(sensor_ids),
+                "batch_id": batch_id
+            }
+            
+        except Exception as e:
+            self.db.rollback()
+            return {
+                "file": filename,
+                "status": "error",
+                "message": f"処理エラー: {str(e)}"
+            }
+
+    def process_core_temperature_csv(
+        self,
+        csv_string: str,
+        competition_id: str,
+        batch_id: str,
+        filename: str
+    ) -> dict:
+        """カプセル体温データ処理（e-Celcius形式）"""
+        try:
+            # CSV読み込み
+            df = pd.read_csv(io.StringIO(csv_string))
+            
+            # 列名の正規化
+            df.columns = df.columns.str.strip()
+            
+            # 必要な列の確認
+            required_columns = ['capsule_id', 'datetime', 'temperature']
+            missing_columns = [col for col in required_columns if col not in df.columns]
+            
+            if missing_columns:
+                return {
+                    "file": filename,
+                    "status": "error",
+                    "message": f"必要な列が不足しています: {missing_columns}"
+                }
+            
+            processed = 0
+            errors = []
+            sensor_ids = set()
+            
+            # UploadBatch作成
+            upload_batch = UploadBatch(
+                batch_id=batch_id,
+                sensor_type=SensorType.CORE_TEMPERATURE,
+                file_name=filename,
+                competition_id=competition_id,
+                total_records=len(df),
+                status=UploadStatus.PROCESSING,
+                uploaded_at=datetime.now()
+            )
+            self.db.add(upload_batch)
+            
+            for index, row in df.iterrows():
+                try:
+                    # データ抽出
+                    capsule_id = str(row.get('capsule_id', '')).strip()
+                    monitor_id = str(row.get('monitor_id', '')).strip()
+                    datetime_str = str(row.get('datetime', '')).strip()
+                    temperature = row.get('temperature')
+                    status = str(row.get('status', '')).strip()
+                    
+                    # 必須項目チェック
+                    if not capsule_id or not monitor_id or not datetime_str:
+                        errors.append(f"行{index+1}: 必須項目が不足")
+                        continue
+                    
+                    # 日時パース
+                    try:
+                        parsed_datetime = pd.to_datetime(datetime_str)
+                    except:
+                        errors.append(f"行{index+1}: 日時形式エラー")
+                        continue
+                    
+                    # temperature処理（NaNの場合はNone）
+                    temp_value = None
+                    if temperature is not None and pd.notna(temperature):
+                        temp_value = float(temperature)
+                    
+                    # CoreTemperatureData作成
+                    core_data = CoreTemperatureData(
+                        capsule_id=capsule_id,
+                        monitor_id=monitor_id,
+                        datetime=parsed_datetime,
+                        temperature=temp_value,
+                        status=status if status else None,
+                        competition_id=competition_id,
+                        upload_batch_id=batch_id,
+                        uploaded_at=datetime.now()
+                    )
+                    
+                    self.db.add(core_data)
+                    processed += 1
+                    sensor_ids.add(capsule_id)
+                    
+                except Exception as e:
+                    errors.append(f"行{index+1}: {str(e)}")
+                    continue
+            
+            # バッチ状態更新
+            upload_batch.success_records = processed
+            upload_batch.failed_records = len(errors)
+            upload_batch.status = UploadStatus.SUCCESS if processed > 0 else UploadStatus.FAILED
+            
+            self.db.commit()
+            
+            return {
+                "file": filename,
+                "status": UploadStatus.SUCCESS if processed > 0 else UploadStatus.FAILED,
+                "total": len(df),
+                "success": processed,
+                "failed": len(errors),
+                "sensor_ids": list(sensor_ids),
+                "batch_id": batch_id
+            }
+            
+        except Exception as e:
+            self.db.rollback()
+            return {
+                "filename": filename,
+                "status": "error",
+                "message": f"処理エラー: {str(e)}"
+            }
+
+    def process_race_record_csv(
+        self,
+        csv_string: str,
+        competition_id: str,
+        batch_id: str,
+        filename: str
+    ) -> dict:
+        """大会記録データ処理"""
+        try:
+            # CSV読み込み
+            df = pd.read_csv(io.StringIO(csv_string))
+            
+            # 列名の正規化
+            df.columns = df.columns.str.strip()
+            
+            # ゼッケン番号列の確認
+            race_number_col = None
+            for col in ['No.', 'No', 'race_number', 'bib_number']:
+                if col in df.columns:
+                    race_number_col = col
+                    break
+            
+            if not race_number_col:
+                return {
+                    "filename": filename,
+                    "status": "error",
+                    "message": "ゼッケン番号列（No.等）が見つかりません"
+                }
+            
+            processed = 0
+            errors = []
+            
+            for index, row in df.iterrows():
+                try:
+                    race_number = str(row.get(race_number_col, '')).strip()
+                    
+                    if not race_number:
+                        errors.append(f"行{index+1}: ゼッケン番号が空です")
+                        continue
+                    
+                    # 時刻データの抽出と変換
+                    race_record_data = {
+                        'competition_id': competition_id,
+                        'race_number': race_number
+                    }
+                    
+                    # 各競技の開始・終了時刻を処理
+                    time_fields = [
+                        ('swim_start', ['SWIM_START', 'Swim Start', 'swim_start_time']),
+                        ('swim_finish', ['SWIM_FINISH', 'Swim Finish', 'swim_finish_time']),
+                        ('bike_start', ['BIKE_START', 'Bike Start', 'bike_start_time']),
+                        ('bike_finish', ['BIKE_FINISH', 'Bike Finish', 'bike_finish_time']),
+                        ('run_start', ['RUN_START', 'Run Start', 'run_start_time']),
+                        ('run_finish', ['RUN_FINISH', 'Run Finish', 'run_finish_time'])
+                    ]
+                    
+                    for field_name, possible_columns in time_fields:
+                        for col in possible_columns:
+                            if col in df.columns:
+                                time_value = row.get(col)
+                                if time_value and pd.notna(time_value):
+                                    try:
+                                        parsed_time = pd.to_datetime(time_value)
+                                        race_record_data[f'{field_name}_time'] = parsed_time
+                                    except:
+                                        pass  # 時刻解析失敗は無視
+                                break
+                    
+                    # RaceRecord作成
+                    race_record = RaceRecord(**race_record_data)
+                    race_record.calculate_total_times()  # 合計時間計算
+                    
+                    self.db.add(race_record)
+                    processed += 1
+                    
+                except Exception as e:
+                    errors.append(f"行{index+1}: {str(e)}")
+                    continue
+            
+            self.db.commit()
+            
+            return {
+                "filename": filename,
+                "status": "success" if processed > 0 else "failed",
+                "total": len(df),
+                "success": processed,
+                "failed": len(errors),
+                "batch_id": batch_id
+            }
+            
+        except Exception as e:
+            self.db.rollback()
+            return {
+                "filename": filename,
+                "status": "error",
+                "message": f"処理エラー: {str(e)}"
+            }
+
+    def process_wbgt_csv(
+        self,
+        csv_string: str,
+        competition_id: str,
+        batch_id: str,
+        filename: str
+    ) -> dict:
+        """WBGT環境データ処理"""
+        try:
+            # CSV読み込み
+            df = pd.read_csv(io.StringIO(csv_string))
+            
+            # 列名の正規化
+            df.columns = df.columns.str.strip()
+            
+            processed = 0
+            errors = []
+            
+            # 列マッピング
+            column_mapping = self._normalize_wbgt_columns(df.columns)
+            
+            if not column_mapping:
+                return {
+                    "filename": filename,
+                    "status": "error",
+                    "message": f"WBGT必須列が見つかりません。現在の列: {list(df.columns)}"
+                }
+            
+            # UploadBatch作成
+            upload_batch = UploadBatch(
+                batch_id=batch_id,
+                sensor_type=SensorType.WBGT,
+                file_name=filename,
+                competition_id=competition_id,
+                total_records=len(df),
+                status=UploadStatus.PROCESSING,
+                uploaded_at=datetime.now()
+            )
+            self.db.add(upload_batch)
+            
+            for index, row in df.iterrows():
+                try:
+                    # 日付と時刻の結合
+                    datetime_value = self._combine_date_time(row, column_mapping)
+                    
+                    if datetime_value is None:
+                        errors.append(f"行{index+1}: 日付・時刻の結合に失敗")
+                        continue
+                    
+                    # WBGT関連データの取得
+                    wbgt_value = self._safe_float(row.get(column_mapping.get('wbgt')))
+                    air_temp = self._safe_float(row.get(column_mapping.get('air_temperature')))
+                    humidity = self._safe_float(row.get(column_mapping.get('humidity')))
+                    globe_temp = self._safe_float(row.get(column_mapping.get('globe_temperature')))
+                    
+                    # 必須項目チェック
+                    if wbgt_value is None:
+                        errors.append(f"行{index+1}: WBGT値が無効")
+                        continue
+                    
+                    # WBGTDataオブジェクト作成
+                    wbgt_data = WBGTData(
+                        timestamp=datetime_value,
+                        wbgt_value=wbgt_value,
+                        air_temperature=air_temp,
+                        humidity=humidity,
+                        globe_temperature=globe_temp,
+                        competition_id=competition_id,
+                        upload_batch_id=batch_id,
+                        uploaded_at=datetime.now()
+                    )
+                    
+                    self.db.add(wbgt_data)
+                    processed += 1
+                    
+                except Exception as e:
+                    errors.append(f"行{index+1}: {str(e)}")
+                    continue
+            
+            # バッチ状態更新
+            upload_batch.success_records = processed
+            upload_batch.failed_records = len(errors)
+            upload_batch.status = UploadStatus.SUCCESS if processed > 0 else UploadStatus.FAILED
+            
+            self.db.commit()
+            
+            return {
+                "filename": filename,
+                "status": "success" if processed > 0 else "failed",
+                "total": len(df),
+                "success": processed,
+                "failed": len(errors),
+                "batch_id": batch_id
+            }
+            
+        except Exception as e:
+            self.db.rollback()
+            return {
+                "filename": filename,
+                "status": "error",
+                "message": f"処理エラー: {str(e)}"
+            }
+
+    # ヘルパーメソッド
+    def _normalize_wbgt_columns(self, columns):
+        """WBGT列名の正規化"""
+        mapping = {}
+        for col in columns:
+            col_lower = col.lower().strip()
+            if '日付' in col or 'date' in col_lower:
+                mapping['date'] = col
+            elif '時刻' in col or 'time' in col_lower:
+                mapping['time'] = col
+            elif 'wbgt' in col_lower:
+                mapping['wbgt'] = col
+            elif '気温' in col or 'air' in col_lower:
+                mapping['air_temperature'] = col
+            elif '湿度' in col or 'humidity' in col_lower:
+                mapping['humidity'] = col
+            elif '黒球' in col or 'globe' in col_lower:
+                mapping['globe_temperature'] = col
+        
+        return mapping if 'date' in mapping and 'time' in mapping and 'wbgt' in mapping else None
+
+    def _combine_date_time(self, row, column_mapping):
+        """日付と時刻を結合"""
+        try:
+            date_value = row.get(column_mapping.get('date'))
+            time_value = row.get(column_mapping.get('time'))
+            
+            if pd.isna(date_value) or pd.isna(time_value):
+                return None
+            
+            # 日付と時刻を文字列として結合
+            datetime_str = f"{date_value} {time_value}"
+            return pd.to_datetime(datetime_str)
+        except:
+            return None
+
+    def _safe_float(self, value):
+        """安全な数値変換"""
+        try:
+            if pd.isna(value):
+                return None
+            return float(value)
+        except:
+            return None
 
     def _detect_encoding(self, content: bytes) -> str:
         """ファイルのエンコーディングを自動検出"""
