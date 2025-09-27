@@ -3,7 +3,6 @@ import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-d
 import { AuthProvider, useAuth } from '@/contexts/AuthContext';
 import { Login } from '@/pages/Login';
 import { Dashboard } from '@/pages/Dashboard';
-import { DataDetail } from '@/pages/DataDetail';
 import { CompetitionManagement } from '@/pages/CompetitionManagement';
 import { UserManagement } from '@/pages/UserManagement';
 import { UserDetail } from '@/pages/UserDetail';
@@ -85,14 +84,6 @@ const AppRoutes: React.FC = () => {
             }
           />
 
-          <Route
-            path="/data/:id"
-            element={
-              <ProtectedRoute>
-                <DataDetail />
-              </ProtectedRoute>
-            }
-          />
 
           {/* 管理者専用ルート */}
           <Route
