@@ -6,7 +6,7 @@ import { Dashboard } from '@/pages/Dashboard';
 import { DataDetail } from '@/pages/DataDetail';
 import { CompetitionManagement } from '@/pages/CompetitionManagement';
 import { UserManagement } from '@/pages/UserManagement';
-import { UserDetail } from '@/pages/UserDetail'; // 新しいページを追加
+import { UserDetail } from '@/pages/UserDetail';
 import { SensorDataUpload } from '@/pages/SensorDataUpload';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import { ErrorBoundary } from '@/components/ui/ErrorBoundary';
@@ -75,7 +75,16 @@ const AppRoutes: React.FC = () => {
             }
           />
 
-          {/* データ詳細ページ */}
+          {/* 一般ユーザー向けルート */}
+          <Route
+            path="/my-data"
+            element={
+              <ProtectedRoute>
+                <Dashboard />
+              </ProtectedRoute>
+            }
+          />
+
           <Route
             path="/data/:id"
             element={

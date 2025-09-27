@@ -5,31 +5,28 @@ import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 
-// シンプル化された統計情報の型定義
+// 実際のAPIレスポンス構造に合わせた型定義
 interface DashboardStats {
   users: {
-    total_users: number;
-    total_admins: number;
+    general_users: number;
+    admin_users: number;
+    total: number;
   };
   competitions: {
-    total_competitions: number;
+    total: number;
   };
   sensor_data: {
     skin_temperature: number;
     core_temperature: number;
     heart_rate: number;
     wbgt: number;
-    race_records: number;
-    total_records: number;
+    total: number;
+  };
+  race_records: {
+    total: number;
   };
   mappings: {
-    total_mappings: number;
-    mapped_sensors: number;         // 新規：ユニークなセンサー数
-    users_with_mappings: number;    // 新規：マッピングを持つユーザー数
-  };
-  upload_activity: {
-    total_batches: number;
-    today_batches: number;
+    total: number;
   };
 }
 
@@ -119,10 +116,10 @@ export const AdminDashboard: React.FC = () => {
                   <div className="flex-1">
                     <p className="text-sm font-medium text-gray-600">総ユーザー数</p>
                     <p className="text-2xl font-bold text-gray-900">
-                      {stats.users.total_users.toLocaleString()}
+                      {stats.users.total.toLocaleString()}
                     </p>
                     <p className="text-xs text-gray-500 mt-1">
-                      管理者: {stats.users.total_admins.toLocaleString()}名
+                      管理者: {stats.users.admin_users.toLocaleString()}名 / 一般: {stats.users.general_users.toLocaleString()}名
                     </p>
                   </div>
                   <div className="ml-4">
@@ -139,17 +136,17 @@ export const AdminDashboard: React.FC = () => {
                 <div className="flex items-center">
                   <div className="flex-1">
                     <p className="text-sm font-medium text-gray-600">総大会数</p>
-                    <p className="text-2xl font-bold text-gray-900">
-                      {stats.competitions.total_competitions.toLocaleString()}
+                    <p className="text-2xl font-bold text-green-600">
+                      {stats.competitions.total.toLocaleString()}
                     </p>
                     <p className="text-xs text-gray-500 mt-1">
-                      登録済み大会
+                      開催済み・予定含む
                     </p>
                   </div>
                   <div className="ml-4">
                     <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-green-500">
                       <svg className="h-6 w-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138 3.42 3.42 0 00-.806-1.946 3.42 3.42 0 010-4.438 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z" />
                       </svg>
                     </div>
                   </div>
@@ -159,12 +156,12 @@ export const AdminDashboard: React.FC = () => {
               <Card className="p-6">
                 <div className="flex items-center">
                   <div className="flex-1">
-                    <p className="text-sm font-medium text-gray-600">総センサー記録</p>
-                    <p className="text-2xl font-bold text-gray-900">
-                      {stats.sensor_data.total_records.toLocaleString()}
+                    <p className="text-sm font-medium text-gray-600">総センサーデータ</p>
+                    <p className="text-2xl font-bold text-purple-600">
+                      {stats.sensor_data.total.toLocaleString()}
                     </p>
                     <p className="text-xs text-gray-500 mt-1">
-                      全センサーデータ合計
+                      体表温・カプセル・心拍・WBGT
                     </p>
                   </div>
                   <div className="ml-4">
@@ -181,11 +178,11 @@ export const AdminDashboard: React.FC = () => {
                 <div className="flex items-center">
                   <div className="flex-1">
                     <p className="text-sm font-medium text-gray-600">センサーマッピング</p>
-                    <p className="text-2xl font-bold text-blue-600">
-                      {stats.mappings.total_mappings.toLocaleString()}
+                    <p className="text-2xl font-bold text-indigo-600">
+                      {stats.mappings.total.toLocaleString()}
                     </p>
                     <p className="text-xs text-gray-500 mt-1">
-                      ユニークセンサー: {stats.mappings.mapped_sensors.toLocaleString()}個
+                      センサーとユーザーの関連付け
                     </p>
                   </div>
                   <div className="ml-4">
@@ -241,71 +238,11 @@ export const AdminDashboard: React.FC = () => {
                 <div className="text-center">
                   <p className="text-sm font-medium text-gray-700 mb-1">大会記録</p>
                   <p className="text-lg font-bold text-gray-900">
-                    {stats.sensor_data.race_records.toLocaleString()}
+                    {stats.race_records.total.toLocaleString()}
                   </p>
                 </div>
               </Card>
             </div>
-
-            {/* マッピング詳細統計 */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              <Card className="p-6">
-                <div className="text-center">
-                  <p className="text-sm font-medium text-gray-600 mb-2">総マッピング数</p>
-                  <p className="text-3xl font-bold text-blue-600">
-                    {stats.mappings.total_mappings.toLocaleString()}
-                  </p>
-                  <p className="text-xs text-gray-500 mt-2">
-                    センサーとユーザーの関連付け
-                  </p>
-                </div>
-              </Card>
-
-              <Card className="p-6">
-                <div className="text-center">
-                  <p className="text-sm font-medium text-gray-600 mb-2">マッピング済みセンサー</p>
-                  <p className="text-3xl font-bold text-purple-600">
-                    {stats.mappings.mapped_sensors.toLocaleString()}
-                  </p>
-                  <p className="text-xs text-gray-500 mt-2">
-                    ユニークなセンサー数
-                  </p>
-                </div>
-              </Card>
-
-              <Card className="p-6">
-                <div className="text-center">
-                  <p className="text-sm font-medium text-gray-600 mb-2">マッピング保有ユーザー</p>
-                  <p className="text-3xl font-bold text-green-600">
-                    {stats.mappings.users_with_mappings.toLocaleString()}
-                  </p>
-                  <p className="text-xs text-gray-500 mt-2">
-                    1つ以上のセンサーを持つユーザー
-                  </p>
-                </div>
-              </Card>
-            </div>
-
-            {/* アップロード活動 */}
-            <Card className="p-6">
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">
-                アップロード活動
-              </h3>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div className="text-center">
-                  <p className="text-sm font-medium text-gray-600 mb-2">総アップロードバッチ</p>
-                  <p className="text-2xl font-bold text-gray-900">
-                    {stats.upload_activity.total_batches.toLocaleString()}
-                  </p>
-                </div>
-                <div className="text-center">
-                  <p className="text-sm font-medium text-gray-600 mb-2">本日のアップロード</p>
-                  <p className="text-2xl font-bold text-green-600">
-                    {stats.upload_activity.today_batches.toLocaleString()}
-                  </p>
-                </div>
-              </div>
-            </Card>
 
             {/* 管理機能ナビゲーション */}
             <Card className="p-6">
@@ -330,7 +267,7 @@ export const AdminDashboard: React.FC = () => {
                   variant="outline"
                 >
                   <svg className="h-5 w-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138 3.42 3.42 0 00-.806-1.946 3.42 3.42 0 010-4.438 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z" />
                   </svg>
                   大会管理
                 </Button>
@@ -347,14 +284,14 @@ export const AdminDashboard: React.FC = () => {
                 </Button>
 
                 <Button
-                  onClick={() => navigate('/admin/sensor-coverage')}
+                  onClick={() => navigate('/admin/mappings')}
                   className="flex items-center justify-center p-4 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200"
                   variant="outline"
                 >
                   <svg className="h-5 w-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
                   </svg>
-                  センサーカバレッジ
+                  マッピング管理
                 </Button>
               </div>
             </Card>

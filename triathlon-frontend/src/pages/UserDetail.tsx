@@ -9,17 +9,19 @@ import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 
 // 🔄 実際のAPIレスポンス構造に合わせて修正
 interface UserDataSummary {
-  user_id: string;
-  skin_temperature_records: number;
-  core_temperature_records: number;
-  heart_rate_records: number;
-  total_competitions: number;
-  competitions: Array<{
-    competition_id: string;
-    name: string;
-    date: string;
-    status: string;
-  }>;
+  user_info: {
+    user_id: string;
+    full_name: string;
+    email: string;
+  };
+  sensor_data_summary: {
+    skin_temperature: number;
+    core_temperature: number;
+    heart_rate: number;
+  };
+  total_sensor_records: number;
+  mappings_count: number;
+  competitions_participated: number;
 }
 
 interface SensorData {
@@ -68,21 +70,17 @@ export const UserDetail: React.FC = () => {
       }
       
       const data = await response.json();
-      console.log('Full API Response:', JSON.stringify(data, null, 2)); // 完全なAPIレスポンスをログ出力
+      console.log('Full API Response:', JSON.stringify(data, null, 2));
       
       // 🛡️ データの存在チェック
       if (!data || typeof data !== 'object') {
         throw new Error('無効なデータ形式です');
       }
       
-      console.log('user_info:', data.user_info); // user_infoを個別にログ出力
+      console.log('user_info:', data.user_info);
       
       setUserDataSummary(data);
       
-      // デフォルトで最初の大会を選択
-      if (data.competitions && Array.isArray(data.competitions) && data.competitions.length > 0) {
-        setSelectedCompetition(data.competitions[0].competition_id);
-      }
     } catch (error) {
       console.error('Failed to load user data summary:', error);
       setError(`ユーザー情報の読み込みに失敗しました: ${error.message}`);
@@ -114,7 +112,6 @@ export const UserDetail: React.FC = () => {
     }
   };
 
-  // 🔄 実際のAPIレスポンスに合わせて変数を修正
   console.log('UserDetail - userId:', userId);
   console.log('UserDetail - userDataSummary:', userDataSummary);
 
@@ -141,26 +138,12 @@ export const UserDetail: React.FC = () => {
     );
   }
 
-  // 🛡️ 安全なデータアクセスのためのnullチェック
-  if (!userDataSummary) {
+  // 🛡️ user_info の存在確認（修正）
+  if (!userDataSummary?.user_info?.user_id) {
     return (
       <Layout>
         <div className="text-center py-8">
-          <div className="text-red-600 mb-4">データの読み込みに失敗しました</div>
-          <Button onClick={() => navigate('/admin/users')}>
-            ユーザー一覧に戻る
-          </Button>
-        </div>
-      </Layout>
-    );
-  }
-
-  // 🛡️ user_idの存在確認
-  if (!userDataSummary?.user_id) {
-    return (
-      <Layout>
-        <div className="text-center py-8">
-          <div className="text-red-600 mb-4">ユーザーIDが見つかりません</div>
+          <div className="text-red-600 mb-4">ユーザー情報が不完全です</div>
           <Button onClick={() => navigate('/admin/users')}>
             ユーザー一覧に戻る
           </Button>
@@ -177,7 +160,7 @@ export const UserDetail: React.FC = () => {
           <div className="flex items-center justify-between">
             <div>
               <h1 className="text-3xl font-bold text-white mb-2">
-                {userDataSummary?.user_id || 'Unknown User'} さんのダッシュボード
+                {userDataSummary.user_info.full_name} さんのダッシュボード
               </h1>
               <p className="text-green-100">
                 センサーデータと参加大会の詳細情報
@@ -200,138 +183,107 @@ export const UserDetail: React.FC = () => {
             <div>
               <label className="text-sm font-medium text-gray-600">User ID</label>
               <p className="text-lg font-semibold text-gray-900">
-                {userDataSummary?.user_id || 'N/A'}
+                {userDataSummary.user_info.user_id}
               </p>
             </div>
             <div>
-              <label className="text-sm font-medium text-gray-600">参加大会数</label>
+              <label className="text-sm font-medium text-gray-600">氏名</label>
               <p className="text-lg font-semibold text-gray-900">
-                {userDataSummary?.total_competitions?.toLocaleString() || '0'}
+                {userDataSummary.user_info.full_name}
               </p>
             </div>
             <div>
-              <label className="text-sm font-medium text-gray-600">総データレコード数</label>
+              <label className="text-sm font-medium text-gray-600">メールアドレス</label>
               <p className="text-lg font-semibold text-gray-900">
-                {((userDataSummary?.skin_temperature_records || 0) + 
-                  (userDataSummary?.core_temperature_records || 0) + 
-                  (userDataSummary?.heart_rate_records || 0)).toLocaleString()}
+                {userDataSummary.user_info.email}
               </p>
             </div>
           </div>
         </Card>
 
-        {/* 下段: 大会選択とデータ表示 */}
-        <Card className="p-6">
-          <div className="flex items-center justify-between mb-6">
-            <h2 className="text-xl font-semibold text-gray-900">参加大会データ</h2>
-            {userDataSummary?.competitions && userDataSummary.competitions.length > 0 && (
-              <select
-                value={selectedCompetition}
-                onChange={(e) => setSelectedCompetition(e.target.value)}
-                className="border border-gray-300 rounded-lg px-3 py-2 bg-white"
-              >
-                <option value="">大会を選択してください</option>
-                {userDataSummary.competitions.map((competition) => (
-                  <option key={competition.competition_id} value={competition.competition_id}>
-                    {competition?.name || 'Unknown Competition'} 
-                    {competition?.date && ` (${new Date(competition.date).toLocaleDateString('ja-JP')})`}
-                  </option>
-                ))}
-              </select>
-            )}
-          </div>
-
-          {!userDataSummary?.competitions || userDataSummary.competitions.length === 0 ? (
-            <div className="text-center py-8 text-gray-500">
-              参加大会がありません
+        {/* データ統計サマリー */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+          <Card className="p-4 bg-blue-50 border-blue-200">
+            <div className="text-center">
+              <p className="text-sm font-medium text-blue-700 mb-1">体表温データ</p>
+              <p className="text-2xl font-bold text-blue-900">
+                {userDataSummary.sensor_data_summary.skin_temperature.toLocaleString()}
+              </p>
             </div>
-          ) : !selectedCompetition ? (
+          </Card>
+
+          <Card className="p-4 bg-red-50 border-red-200">
+            <div className="text-center">
+              <p className="text-sm font-medium text-red-700 mb-1">カプセル体温</p>
+              <p className="text-2xl font-bold text-red-900">
+                {userDataSummary.sensor_data_summary.core_temperature.toLocaleString()}
+              </p>
+            </div>
+          </Card>
+
+          <Card className="p-4 bg-green-50 border-green-200">
+            <div className="text-center">
+              <p className="text-sm font-medium text-green-700 mb-1">心拍データ</p>
+              <p className="text-2xl font-bold text-green-900">
+                {userDataSummary.sensor_data_summary.heart_rate.toLocaleString()}
+              </p>
+            </div>
+          </Card>
+
+          <Card className="p-4 bg-purple-50 border-purple-200">
+            <div className="text-center">
+              <p className="text-sm font-medium text-purple-700 mb-1">マッピング数</p>
+              <p className="text-2xl font-bold text-purple-900">
+                {userDataSummary.mappings_count.toLocaleString()}
+              </p>
+            </div>
+          </Card>
+
+          <Card className="p-4 bg-yellow-50 border-yellow-200">
+            <div className="text-center">
+              <p className="text-sm font-medium text-yellow-700 mb-1">参加大会数</p>
+              <p className="text-2xl font-bold text-yellow-900">
+                {userDataSummary.competitions_participated.toLocaleString()}
+              </p>
+            </div>
+          </Card>
+        </div>
+
+        {/* データ詳細表示エリア */}
+        <Card className="p-6">
+          <h2 className="text-xl font-semibold text-gray-900 mb-4">センサーデータ詳細</h2>
+          
+          {userDataSummary.total_sensor_records === 0 ? (
             <div className="text-center py-8 text-gray-500">
-              大会を選択してデータを表示してください
+              <div className="mb-4">
+                <svg className="h-12 w-12 text-gray-400 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                </svg>
+              </div>
+              <p className="text-lg font-medium">センサーデータがありません</p>
+              <p className="text-sm mt-1">
+                このユーザーには現在登録されているセンサーデータがありません。
+              </p>
             </div>
           ) : (
-            <div className="space-y-6">
-              {/* データ統計 */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div className="bg-blue-50 p-4 rounded-lg text-center">
-                  <div className="text-2xl font-bold text-blue-600">
-                    {userDataSummary?.skin_temperature_records?.toLocaleString() || '0'}
-                  </div>
-                  <div className="text-sm text-blue-600">体表温データ</div>
-                </div>
-                <div className="bg-red-50 p-4 rounded-lg text-center">
-                  <div className="text-2xl font-bold text-red-600">
-                    {userDataSummary?.core_temperature_records?.toLocaleString() || '0'}
-                  </div>
-                  <div className="text-sm text-red-600">カプセル体温データ</div>
-                </div>
-                <div className="bg-green-50 p-4 rounded-lg text-center">
-                  <div className="text-2xl font-bold text-green-600">
-                    {userDataSummary?.heart_rate_records?.toLocaleString() || '0'}
-                  </div>
-                  <div className="text-sm text-green-600">心拍データ</div>
-                </div>
-              </div>
-
-              {/* センサーデータテーブル表示 */}
-              {sensorData.length > 0 ? (
-                <div>
-                  <h3 className="text-lg font-semibold text-gray-900 mb-4">
-                    センサーデータ詳細
-                  </h3>
-                  <div className="overflow-x-auto">
-                    <table className="min-w-full bg-white border border-gray-200">
-                      <thead className="bg-gray-50">
-                        <tr>
-                          <th className="px-4 py-3 text-left text-sm font-medium text-gray-700">
-                            センサー種別
-                          </th>
-                          <th className="px-4 py-3 text-left text-sm font-medium text-gray-700">
-                            センサーID
-                          </th>
-                          <th className="px-4 py-3 text-left text-sm font-medium text-gray-700">
-                            レコード数
-                          </th>
-                          <th className="px-4 py-3 text-left text-sm font-medium text-gray-700">
-                            最新記録時刻
-                          </th>
-                          <th className="px-4 py-3 text-left text-sm font-medium text-gray-700">
-                            データ範囲
-                          </th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-gray-200">
-                        {sensorData.map((data, index) => (
-                          <tr key={index} className="hover:bg-gray-50">
-                            <td className="px-4 py-3 text-sm text-gray-900">
-                              {data?.sensor_type || 'N/A'}
-                            </td>
-                            <td className="px-4 py-3 text-sm text-gray-900">
-                              {data?.sensor_id || 'N/A'}
-                            </td>
-                            <td className="px-4 py-3 text-sm text-gray-900">
-                              {data?.record_count?.toLocaleString() || '0'}
-                            </td>
-                            <td className="px-4 py-3 text-sm text-gray-900">
-                              {data?.latest_record ? new Date(data.latest_record).toLocaleString('ja-JP') : 'N/A'}
-                            </td>
-                            <td className="px-4 py-3 text-sm text-gray-900">
-                              {data?.data_range || 'N/A'}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              ) : (
-                <div className="text-center py-8 text-gray-500">
-                  選択した大会のセンサーデータがありません
-                </div>
-              )}
+            <div className="text-center py-8 text-gray-500">
+              <p>総レコード数: {userDataSummary.total_sensor_records.toLocaleString()} 件</p>
+              <p className="text-sm mt-1">
+                センサーデータの詳細表示機能は今後実装予定です。
+              </p>
             </div>
           )}
         </Card>
+
+        {/* デバッグ情報（開発用） */}
+        {process.env.NODE_ENV === 'development' && (
+          <Card className="p-6 bg-gray-50">
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">デバッグ情報</h3>
+            <pre className="text-xs text-gray-600 bg-white p-4 rounded overflow-auto">
+              {JSON.stringify(userDataSummary, null, 2)}
+            </pre>
+          </Card>
+        )}
       </div>
     </Layout>
   );

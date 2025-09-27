@@ -139,20 +139,33 @@ export const Login: React.FC = () => {
                 <svg className="mr-2 h-5 w-5 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
                 </svg>
-                管理者でログイン
+                管理者でログイン (admin / admin123)
               </Button>
               
               <Button
                 type="button"
                 variant="outline"
-                onClick={() => handleTestLogin('test_taro', 'password123')}
+                onClick={() => handleTestLogin('testuser1', 'password123')}
                 disabled={isLoading}
                 className="w-full h-11 justify-center"
               >
                 <svg className="mr-2 h-5 w-5 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
                 </svg>
-                テストユーザーでログイン
+                テストユーザー1でログイン (testuser1 / password123)
+              </Button>
+
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => handleTestLogin('user001', 'password123')}
+                disabled={isLoading}
+                className="w-full h-11 justify-center"
+              >
+                <svg className="mr-2 h-5 w-5 text-purple-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                </svg>
+                サンプルユーザーでログイン (user001 / password123)
               </Button>
             </div>
           </div>
