@@ -1,4 +1,4 @@
-// src/utils/chartUtils.ts
+// src/utils/chartUtils.ts - 最小限修正版（元のコードを維持）
 
 import { SensorDataPoint, RaceRecord } from '@/types/feedback';
 
@@ -16,7 +16,7 @@ export interface FeedbackChartSegment {
   label: string;
 }
 
-// 既存のformatChartData関数を拡張
+// 既存のformatChartData関数（変更なし）
 export const formatChartData = (data: ChartDataPoint[]) => {
   return {
     labels: data.map(point => new Date(point.timestamp).toLocaleTimeString('ja-JP', { 
@@ -42,7 +42,7 @@ export const formatChartData = (data: ChartDataPoint[]) => {
   };
 };
 
-// フィードバックチャート用のデータフォーマット関数
+// フィードバックチャート用のデータフォーマット関数（変更なし）
 export const formatFeedbackChartData = (data: SensorDataPoint[]) => {
   if (!data.length) return { labels: [], datasets: [] };
 
@@ -118,7 +118,7 @@ export const formatFeedbackChartData = (data: SensorDataPoint[]) => {
   return { labels, datasets };
 };
 
-// 競技区間の背景色設定を生成
+// 競技区間の背景色設定を生成（変更なし）
 export const generateRaceSegments = (
   raceRecord: RaceRecord | null,
   timeRange: { start: string; end: string } | null
@@ -183,7 +183,37 @@ export const generateRaceSegments = (
   return segments;
 };
 
-// チャートオプションの生成（フィードバック用）
+// 🆕 Chart.jsプラグインの定義（新規追加）
+export const segmentBackgroundPlugin = {
+  id: 'segmentBackground',
+  beforeDraw: (chart: any, args: any, options: any) => {
+    const { ctx, chartArea, scales } = chart;
+    const segments = options.segments || [];
+
+    if (!segments.length) return;
+
+    ctx.save();
+
+    segments.forEach((segment: FeedbackChartSegment) => {
+      // 時間をピクセル位置に変換
+      const startPixel = scales.x.getPixelForValue(segment.start);
+      const endPixel = scales.x.getPixelForValue(segment.end);
+
+      // 背景色を描画
+      ctx.fillStyle = segment.color;
+      ctx.fillRect(
+        startPixel,
+        chartArea.top,
+        endPixel - startPixel,
+        chartArea.bottom - chartArea.top
+      );
+    });
+
+    ctx.restore();
+  }
+};
+
+// チャートオプションの生成（フィードバック用）- 変更なし
 export const getFeedbackChartOptions = (
   hasTemperatureData: boolean,
   hasHeartRateData: boolean
@@ -269,7 +299,7 @@ export const getFeedbackChartOptions = (
   };
 };
 
-// 時間範囲の計算
+// 時間範囲の計算（変更なし）
 export const calculateTimeRange = (
   raceRecord: RaceRecord | null, 
   offsetMinutes: number
