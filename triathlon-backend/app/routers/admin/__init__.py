@@ -15,7 +15,7 @@ from .batches import router as batches_router
 from .race_records import router as race_records_router  # 新しく追加
 
 # メインの管理者ルーター
-router = APIRouter(prefix="/admin", tags=["admin"])
+router = APIRouter(prefix="/admin", tags=["管理者"])
 
 # 各機能ルーターを統合
 router.include_router(stats_router)

@@ -15,9 +15,9 @@ from .race_records import router as race_records_upload_router
 router = APIRouter()
 
 # 各センサーデータのルーターを統合
-router.include_router(skin_temperature_router, tags=["skin-temperature"])
-router.include_router(core_temperature_router, tags=["core-temperature"])
-router.include_router(heart_rate_router, tags=["heart-rate"])
-router.include_router(wbgt_router, tags=["wbgt"])
-router.include_router(mapping_router, tags=["mapping"])
-router.include_router(race_records_upload_router, tags=["race-records-upload"])
+router.include_router(skin_temperature_router, tags=["管理者-データアップロード"])
+router.include_router(core_temperature_router, tags=["管理者-データアップロード"])
+router.include_router(heart_rate_router, tags=["管理者-データアップロード"])
+router.include_router(wbgt_router, tags=["管理者-データアップロード"])
+router.include_router(mapping_router, tags=["管理者-データアップロード"])
+router.include_router(race_records_upload_router, tags=["管理者-データアップロード"])
