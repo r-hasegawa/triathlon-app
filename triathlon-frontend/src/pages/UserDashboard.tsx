@@ -4,6 +4,8 @@ import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import { useAuth } from '@/contexts/AuthContext';
+import { TriathlonFeedbackChart } from '@/components/charts/TriathlonFeedbackChart';
+import { feedbackService, type CompetitionRace } from '@/services/feedbackService';
 
 // 一般ユーザー向けデータサマリーの型定義
 interface UserDataSummary {
@@ -32,11 +34,13 @@ export const UserDashboard: React.FC = () => {
   const { user } = useAuth();
   const [userDataSummary, setUserDataSummary] = useState<UserDataSummary | null>(null);
   const [selectedCompetition, setSelectedCompetition] = useState<string>('');
+  const [competitions, setCompetitions] = useState<CompetitionRace[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
 
   useEffect(() => {
     fetchUserDataSummary();
+    fetchCompetitions();
   }, []);
 
   const fetchUserDataSummary = async () => {
@@ -58,17 +62,46 @@ export const UserDashboard: React.FC = () => {
 
       const data = await response.json();
       console.log('User data summary:', data);
-      setUserDataSummary(data);
       
-      // デフォルトで最初の大会を選択
-      if (data.competitions && data.competitions.length > 0) {
-        setSelectedCompetition(data.competitions[0].competition_id);
-      }
+      // バックエンドのレスポンス形式に合わせて変換
+      const transformedData = {
+        user_info: {
+          user_id: user?.user_id || 'N/A',
+          full_name: user?.full_name || user?.username || 'ユーザー',
+          email: user?.email || 'N/A'
+        },
+        sensor_data_summary: {
+          skin_temperature: 0,
+          core_temperature: 0,
+          heart_rate: 0
+        },
+        total_sensor_records: data.total_sensor_records || 0,
+        mappings_count: 0,
+        competitions_participated: data.competitions_participated || 0,
+        competitions: []
+      };
+      
+      setUserDataSummary(transformedData);
+      
     } catch (error) {
       console.error('Failed to fetch user data summary:', error);
       setError('データの取得に失敗しました');
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const fetchCompetitions = async () => {
+    try {
+      const data = await feedbackService.getUserCompetitions();
+      setCompetitions(data);
+      
+      // デフォルトで最初の大会を選択
+      if (data && data.length > 0) {
+        setSelectedCompetition(data[0].id);
+      }
+    } catch (error) {
+      console.error('Failed to fetch competitions:', error);
     }
   };
 
@@ -133,7 +166,7 @@ export const UserDashboard: React.FC = () => {
             marginBottom: '8px',
             margin: 0
           }}>
-            {userDataSummary.user_info.full_name} さんのダッシュボード
+            {userDataSummary?.user_info?.full_name || 'ユーザー'} さんのダッシュボード
           </h1>
           <p style={{
             color: 'rgba(255, 255, 255, 0.9)',
@@ -150,19 +183,19 @@ export const UserDashboard: React.FC = () => {
             <div>
               <label className="text-sm font-medium text-gray-600">User ID</label>
               <p className="text-lg font-semibold text-gray-900">
-                {userDataSummary.user_info.user_id}
+                {userDataSummary?.user_info?.user_id || '取得中...'}
               </p>
             </div>
             <div>
               <label className="text-sm font-medium text-gray-600">氏名</label>
               <p className="text-lg font-semibold text-gray-900">
-                {userDataSummary.user_info.full_name}
+                {userDataSummary?.user_info?.full_name || '取得中...'}
               </p>
             </div>
             <div>
               <label className="text-sm font-medium text-gray-600">メールアドレス</label>
               <p className="text-lg font-semibold text-gray-900">
-                {userDataSummary.user_info.email}
+                {userDataSummary?.user_info?.email || '取得中...'}
               </p>
             </div>
           </div>
@@ -174,7 +207,7 @@ export const UserDashboard: React.FC = () => {
             <div className="text-center">
               <p className="text-sm font-medium text-blue-700 mb-1">体表温データ</p>
               <p className="text-2xl font-bold text-blue-900">
-                {userDataSummary.sensor_data_summary.skin_temperature.toLocaleString()}
+                {userDataSummary?.sensor_data_summary?.skin_temperature?.toLocaleString() || '0'}
               </p>
               <p className="text-xs text-blue-600 mt-1">件</p>
             </div>
@@ -184,7 +217,7 @@ export const UserDashboard: React.FC = () => {
             <div className="text-center">
               <p className="text-sm font-medium text-red-700 mb-1">カプセル体温</p>
               <p className="text-2xl font-bold text-red-900">
-                {userDataSummary.sensor_data_summary.core_temperature.toLocaleString()}
+                {userDataSummary?.sensor_data_summary?.core_temperature?.toLocaleString() || '0'}
               </p>
               <p className="text-xs text-red-600 mt-1">件</p>
             </div>
@@ -194,7 +227,7 @@ export const UserDashboard: React.FC = () => {
             <div className="text-center">
               <p className="text-sm font-medium text-green-700 mb-1">心拍データ</p>
               <p className="text-2xl font-bold text-green-900">
-                {userDataSummary.sensor_data_summary.heart_rate.toLocaleString()}
+                {userDataSummary?.sensor_data_summary?.heart_rate?.toLocaleString() || '0'}
               </p>
               <p className="text-xs text-green-600 mt-1">件</p>
             </div>
@@ -204,7 +237,7 @@ export const UserDashboard: React.FC = () => {
             <div className="text-center">
               <p className="text-sm font-medium text-purple-700 mb-1">マッピング数</p>
               <p className="text-2xl font-bold text-purple-900">
-                {userDataSummary.mappings_count.toLocaleString()}
+                {userDataSummary?.mappings_count?.toLocaleString() || '0'}
               </p>
               <p className="text-xs text-purple-600 mt-1">個</p>
             </div>
@@ -214,7 +247,7 @@ export const UserDashboard: React.FC = () => {
             <div className="text-center">
               <p className="text-sm font-medium text-yellow-700 mb-1">参加大会数</p>
               <p className="text-2xl font-bold text-yellow-900">
-                {userDataSummary.competitions_participated.toLocaleString()}
+                {userDataSummary?.competitions_participated?.toLocaleString() || '0'}
               </p>
               <p className="text-xs text-yellow-600 mt-1">大会</p>
             </div>
@@ -225,105 +258,67 @@ export const UserDashboard: React.FC = () => {
         <Card className="p-6">
           <h2 className="text-xl font-semibold text-gray-900 mb-4">参加大会</h2>
           
-          {userDataSummary.competitions.length === 0 ? (
+          {!competitions || competitions.length === 0 ? (
             <div className="text-center py-8 text-gray-500">
               <div className="mb-4">
-                <svg className="h-12 w-12 text-gray-400 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138 3.42 3.42 0 00-.806-1.946 3.42 3.42 0 010-4.438 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z" />
+                <svg className="h-16 w-16 text-gray-300 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
                 </svg>
               </div>
-              <p className="text-lg font-medium">参加大会がありません</p>
-              <p className="text-sm mt-1">
-                大会に参加してセンサーデータが登録されると、ここに表示されます。
+              <h3 className="text-lg font-medium text-gray-900 mb-2">
+                参加大会がありません
+              </h3>
+              <p className="text-sm">
+                管理者によって大会への参加登録が行われると、ここに表示されます。
               </p>
             </div>
           ) : (
-            <div className="space-y-4">
-              {/* 大会選択 */}
-              <div className="flex items-center gap-4">
-                <label className="text-sm font-medium text-gray-700">表示する大会:</label>
-                <select
-                  value={selectedCompetition}
-                  onChange={(e) => setSelectedCompetition(e.target.value)}
-                  className="block w-auto rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {competitions.map((competition) => (
+                <div
+                  key={competition.id}
+                  className={`p-4 border rounded-lg cursor-pointer transition-colors ${
+                    selectedCompetition === competition.id
+                      ? 'border-blue-500 bg-blue-50'
+                      : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'
+                  }`}
+                  onClick={() => setSelectedCompetition(competition.id)}
                 >
-                  <option value="">-- 大会を選択 --</option>
-                  {userDataSummary.competitions.map((comp) => (
-                    <option key={comp.competition_id} value={comp.competition_id}>
-                      {comp.name} ({new Date(comp.date).toLocaleDateString('ja-JP')})
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              {/* 大会一覧表示 */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {userDataSummary.competitions.map((competition) => (
-                  <div
-                    key={competition.competition_id}
-                    className={`border rounded-lg p-4 transition-colors ${
-                      selectedCompetition === competition.competition_id
-                        ? 'border-blue-500 bg-blue-50'
-                        : 'border-gray-200 hover:border-gray-300'
-                    }`}
-                  >
-                    <h3 className="font-semibold text-gray-900 mb-2">
-                      {competition.name}
-                    </h3>
-                    <div className="text-sm text-gray-600 space-y-1">
-                      <p>開催日: {new Date(competition.date).toLocaleDateString('ja-JP')}</p>
-                      {competition.bib_number && (
-                        <p>ゼッケン番号: {competition.bib_number}</p>
-                      )}
-                      <p>大会ID: {competition.competition_id}</p>
+                  <h3 className="font-medium text-gray-900 mb-1">
+                    {competition.name}
+                  </h3>
+                  <p className="text-sm text-gray-500 mb-1">
+                    {new Date(competition.date).toLocaleDateString('ja-JP')}
+                  </p>
+                  {selectedCompetition === competition.id && (
+                    <div className="mt-2">
+                      <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                        選択中
+                      </span>
                     </div>
-                  </div>
-                ))}
-              </div>
+                  )}
+                </div>
+              ))}
             </div>
           )}
         </Card>
 
-        {/* データ詳細表示エリア */}
-        <Card className="p-6">
-          <h2 className="text-xl font-semibold text-gray-900 mb-4">センサーデータ詳細</h2>
-          
-          {userDataSummary.total_sensor_records === 0 ? (
-            <div className="text-center py-8 text-gray-500">
-              <div className="mb-4">
-                <svg className="h-12 w-12 text-gray-400 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-                </svg>
-              </div>
-              <p className="text-lg font-medium">センサーデータがありません</p>
-              <p className="text-sm mt-1">
-                センサーマッピングが設定され、データがアップロードされると、ここに詳細情報が表示されます。
-              </p>
-            </div>
-          ) : !selectedCompetition ? (
-            <div className="text-center py-8 text-gray-500">
-              <p className="text-lg font-medium">大会を選択してください</p>
-              <p className="text-sm mt-1">
-                上記で大会を選択すると、その大会でのセンサーデータの詳細を確認できます。
-              </p>
-            </div>
-          ) : (
-            <div className="text-center py-8 text-blue-600">
-              <div className="mb-4">
-                <svg className="h-12 w-12 text-blue-400 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
-                </svg>
-              </div>
-              <p className="text-lg font-medium">センサーデータ詳細表示</p>
-              <p className="text-sm mt-1">
-                総レコード数: {userDataSummary.total_sensor_records.toLocaleString()} 件
-              </p>
-              <p className="text-sm mt-1 text-gray-500">
-                詳細なデータ表示・グラフ機能は今後実装予定です
-              </p>
-            </div>
-          )}
-        </Card>
+        {/* フィードバックグラフ */}
+        {competitions.length > 0 && (
+          <Card className="p-6">
+            <h2 className="text-xl font-semibold text-gray-900 mb-4">
+              トライアスロン フィードバックグラフ
+            </h2>
+            <p className="text-sm text-gray-600 mb-6">
+              センサーデータと競技区間（Swim/Bike/Run）を時系列で確認できます
+            </p>
+            <TriathlonFeedbackChart
+              competitions={competitions}
+              competitionId={selectedCompetition}
+              height={500}
+            />
+          </Card>
+        )}
 
         {/* デバッグ情報（開発環境のみ） */}
         {process.env.NODE_ENV === 'development' && (

@@ -1,3 +1,5 @@
+// src/services/api.ts
+
 import axios from 'axios';
 
 const BASE_URL = 'http://localhost:8000';
@@ -38,4 +40,5 @@ api.interceptors.response.use(
   }
 );
 
+// デフォルトエクスポート（既存コードとの互換性のため）
 export default api;
