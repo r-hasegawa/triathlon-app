@@ -26,241 +26,7 @@ from app.schemas.sensor_data import (
 )
 
 class FlexibleCSVService:
-    def __init__(self, db: Session):
-        """コンストラクタ"""
-        self.db = db
-
-    def process_skin_temperature_csv(
-        self,
-        csv_string: str,
-        competition_id: str,
-        batch_id: str,
-        filename: str
-    ) -> dict:
-        """体表温データ処理（halshare形式）"""
-        try:
-            # CSV読み込み
-            df = pd.read_csv(io.StringIO(csv_string))
-            
-            # 列名の正規化
-            df.columns = df.columns.str.strip()
-            
-            # 必要な列の確認
-            required_columns = ['halshareWearerName', 'halshareId', 'datetime', 'temperature']
-            missing_columns = [col for col in required_columns if col not in df.columns]
-            
-            if missing_columns:
-                return {
-                    "filename": filename,
-                    "status": "error",
-                    "message": f"必要な列が不足しています: {missing_columns}"
-                }
-            
-            processed = 0
-            errors = []
-            sensor_ids = set()
-            
-            # UploadBatch作成
-            upload_batch = UploadBatch(
-                batch_id=batch_id,
-                sensor_type=SensorType.SKIN_TEMPERATURE,
-                file_name=filename,
-                competition_id=competition_id,
-                total_records=len(df),
-                status=UploadStatus.PROCESSING,
-                uploaded_at=datetime.now()
-            )
-            self.db.add(upload_batch)
-            for index, row in df.iterrows():
-                try:
-                    # データ抽出
-                    halshare_id = str(row['halshareId']).strip()
-                    datetime_str = str(row['datetime']).strip()
-                    temperature = float(row['temperature'])
-
-
-                    # クォート除去処理
-                    if halshare_id.startswith(' "') and halshare_id.endswith('"'):
-                        halshare_id = halshare_id[2:-1]  # ' "値" → 値
-                    elif halshare_id.startswith('"') and halshare_id.endswith('"'):
-                        halshare_id = halshare_id[1:-1]   # "値" → 値
-                    
-                    if datetime_str.startswith(' "') and datetime_str.endswith('"'):
-                        datetime_str = datetime_str[2:-1]  # ' "日時" → 日時
-                    elif datetime_str.startswith('"') and datetime_str.endswith('"'):
-                        datetime_str = datetime_str[1:-1]   # "日時" → 日時
-                    
-                    # 最終的な空白除去
-                    halshare_id = halshare_id.strip()
-                    datetime_str = datetime_str.strip()
-                    
-                    # 必須項目チェック
-                    if not halshare_id or not datetime_str or not temperature:
-                        errors.append(f"行{index+1}: 必須項目が不足")
-                        continue
-                    
-                    # 日時パース
-                    try:
-                        parsed_datetime = pd.to_datetime(datetime_str)
-                    except:
-                        errors.append(f"行{index+1}: 日時形式エラー")
-                        continue
-
-                    # SkinTemperatureData作成
-                    skin_data = SkinTemperatureData(
-                        halshare_id=halshare_id,
-                        datetime=parsed_datetime,
-                        temperature=temperature,
-                        competition_id=competition_id,
-                        upload_batch_id=batch_id,
-                        uploaded_at=datetime.now()
-                    )
-                    
-                    self.db.add(skin_data)
-                    processed += 1
-                    sensor_ids.add(halshare_id)
-                    
-                except Exception as e:
-                    errors.append(f"行{index+1}: {str(e)}")
-                    continue
-            # バッチ状態更新
-            upload_batch.success_records = processed
-            upload_batch.failed_records = len(errors)
-            upload_batch.status = UploadStatus.SUCCESS if processed > 0 else UploadStatus.FAILED
-            
-            self.db.commit()
-            
-            return {
-                "file": filename,
-                "status": UploadStatus.SUCCESS if processed > 0 else UploadStatus.FAILED,
-                "total": len(df),
-                "success": processed,
-                "failed": len(errors),
-                "sensor_ids": list(sensor_ids),
-                "batch_id": batch_id
-            }
-            
-        except Exception as e:
-            self.db.rollback()
-            return {
-                "file": filename,
-                "status": "error",
-                "message": f"処理エラー: {str(e)}"
-            }
-
-    def process_core_temperature_csv(
-        self,
-        csv_string: str,
-        competition_id: str,
-        batch_id: str,
-        filename: str
-    ) -> dict:
-        """カプセル体温データ処理（e-Celcius形式）"""
-        try:
-            # CSV読み込み
-            df = pd.read_csv(io.StringIO(csv_string))
-            
-            # 列名の正規化
-            df.columns = df.columns.str.strip()
-            
-            # 必要な列の確認
-            required_columns = ['capsule_id', 'datetime', 'temperature']
-            missing_columns = [col for col in required_columns if col not in df.columns]
-            
-            if missing_columns:
-                return {
-                    "file": filename,
-                    "status": "error",
-                    "message": f"必要な列が不足しています: {missing_columns}"
-                }
-            
-            processed = 0
-            errors = []
-            sensor_ids = set()
-            
-            # UploadBatch作成
-            upload_batch = UploadBatch(
-                batch_id=batch_id,
-                sensor_type=SensorType.CORE_TEMPERATURE,
-                file_name=filename,
-                competition_id=competition_id,
-                total_records=len(df),
-                status=UploadStatus.PROCESSING,
-                uploaded_at=datetime.now()
-            )
-            self.db.add(upload_batch)
-            
-            for index, row in df.iterrows():
-                try:
-                    # データ抽出
-                    capsule_id = str(row.get('capsule_id', '')).strip()
-                    monitor_id = str(row.get('monitor_id', '')).strip()
-                    datetime_str = str(row.get('datetime', '')).strip()
-                    temperature = row.get('temperature')
-                    status = str(row.get('status', '')).strip()
-                    
-                    # 必須項目チェック
-                    if not capsule_id or not monitor_id or not datetime_str:
-                        errors.append(f"行{index+1}: 必須項目が不足")
-                        continue
-                    
-                    # 日時パース
-                    try:
-                        parsed_datetime = pd.to_datetime(datetime_str)
-                    except:
-                        errors.append(f"行{index+1}: 日時形式エラー")
-                        continue
-                    
-                    # temperature処理（NaNの場合はNone）
-                    temp_value = None
-                    if temperature is not None and pd.notna(temperature):
-                        temp_value = float(temperature)
-                    
-                    # CoreTemperatureData作成
-                    core_data = CoreTemperatureData(
-                        capsule_id=capsule_id,
-                        monitor_id=monitor_id,
-                        datetime=parsed_datetime,
-                        temperature=temp_value,
-                        status=status if status else None,
-                        competition_id=competition_id,
-                        upload_batch_id=batch_id,
-                        uploaded_at=datetime.now()
-                    )
-                    
-                    self.db.add(core_data)
-                    processed += 1
-                    sensor_ids.add(capsule_id)
-                    
-                except Exception as e:
-                    errors.append(f"行{index+1}: {str(e)}")
-                    continue
-            
-            # バッチ状態更新
-            upload_batch.success_records = processed
-            upload_batch.failed_records = len(errors)
-            upload_batch.status = UploadStatus.SUCCESS if processed > 0 else UploadStatus.FAILED
-            
-            self.db.commit()
-            
-            return {
-                "file": filename,
-                "status": UploadStatus.SUCCESS if processed > 0 else UploadStatus.FAILED,
-                "total": len(df),
-                "success": processed,
-                "failed": len(errors),
-                "sensor_ids": list(sensor_ids),
-                "batch_id": batch_id
-            }
-            
-        except Exception as e:
-            self.db.rollback()
-            return {
-                "filename": filename,
-                "status": "error",
-                "message": f"処理エラー: {str(e)}"
-            }
-
+    
     def process_race_record_csv(
         self,
         csv_string: str,
@@ -597,13 +363,10 @@ class FlexibleCSVService:
                 sensor_type=SensorType.WBGT,
                 competition_id=competition_id,
                 file_name=wbgt_file.filename,
-                file_size=len(content),
                 total_records=len(df),
                 success_records=processed,
                 failed_records=len(errors),
-                status=UploadStatus.SUCCESS if not errors else UploadStatus.PARTIAL,
-                uploaded_by="admin",
-                notes=f"エラー{len(errors)}件" if errors else None
+                status=UploadStatus.SUCCESS if not errors else UploadStatus.PARTIAL
             )
             db.add(batch)
             db.commit()
@@ -1035,13 +798,10 @@ class FlexibleCSVService:
                 sensor_type=SensorType.WBGT,
                 competition_id=competition_id,
                 file_name=wbgt_file.filename,
-                file_size=len(content),
                 total_records=len(df),
                 success_records=processed,
                 failed_records=len(errors),
-                status=UploadStatus.SUCCESS if len(errors) == 0 else UploadStatus.PARTIAL,
-                uploaded_by="admin",  # TODO: 実際のユーザーIDに変更
-                notes=f"エラー: {len(errors)}件" if errors else None
+                status=UploadStatus.SUCCESS if len(errors) == 0 else UploadStatus.PARTIAL
             )
             db.add(upload_batch)
             
@@ -1579,13 +1339,10 @@ class FlexibleCSVService:
                 sensor_type=SensorType.OTHER,
                 competition_id=competition_id,
                 file_name=f"race_records_{len(race_files)}files.csv",
-                file_size=total_file_size,
                 total_records=total_csv_records,
                 success_records=saved_count,
                 failed_records=failed_count,
-                status=UploadStatus.SUCCESS if failed_count == 0 else UploadStatus.PARTIAL,
-                uploaded_by=admin_id,
-                notes=f"統合LAP列: {', '.join(sorted(lap_columns))}" if lap_columns else None
+                status=UploadStatus.SUCCESS if failed_count == 0 else UploadStatus.PARTIAL
             )
             db.add(batch)
             

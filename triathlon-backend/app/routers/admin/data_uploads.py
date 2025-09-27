@@ -9,12 +9,27 @@ from typing import List, Optional
 import pandas as pd
 import xml.etree.ElementTree as ET
 import io
+from datetime import datetime
 
 from app.database import get_db
 from app.models.user import AdminUser
-from app.models.competition import Competition
+from app.models.competition import Competition, RaceRecord
+from app.models.flexible_sensor_data import (
+    FlexibleSensorMapping,
+    SkinTemperatureData, 
+    CoreTemperatureData, 
+    HeartRateData, 
+    WBGTData, 
+    SensorDataStatus, 
+    SensorType,
+    UploadBatch, 
+    SensorType, 
+    UploadStatus
+)
 from app.utils.dependencies import get_current_admin
+from app.services.flexible_csv_service import FlexibleCSVService
 from .utils import generate_batch_id, detect_encoding
+
 
 router = APIRouter()
 
@@ -62,8 +77,6 @@ async def upload_skin_temperature(
                 })
                 continue
             
-            # UploadBatch作成
-            from app.models.flexible_sensor_data import UploadBatch, SensorType, UploadStatus, SkinTemperatureData
             batch = UploadBatch(
                 batch_id=batch_id,
                 sensor_type=SensorType.SKIN_TEMPERATURE,
@@ -201,8 +214,6 @@ async def upload_core_temperature(
                         if sensor_id:
                             sensor_ids[i] = sensor_id
             
-            # UploadBatch作成
-            from app.models.flexible_sensor_data import UploadBatch, SensorType, UploadStatus, CoreTemperatureData
             batch = UploadBatch(
                 batch_id=batch_id,
                 sensor_type=SensorType.CORE_TEMPERATURE,
@@ -320,8 +331,6 @@ async def upload_heart_rate(
                 })
                 continue
             
-            # UploadBatch作成
-            from app.models.flexible_sensor_data import UploadBatch, SensorType, UploadStatus, HeartRateData
             batch = UploadBatch(
                 batch_id=batch_id,
                 sensor_type=SensorType.HEART_RATE,
@@ -390,7 +399,7 @@ async def upload_heart_rate(
                 "failed": failed_count,
                 "status": batch.status.value
             })
-            
+
         except Exception as e:
             db.rollback()
             results.append({
@@ -422,7 +431,6 @@ async def upload_wbgt_data(
     try:
         # 上書き処理：既存データを削除
         if overwrite:
-            from app.models.flexible_sensor_data import WBGTData
             deleted_count = db.query(WBGTData).filter_by(competition_id=competition_id).delete()
             db.commit()
             print(f"既存WBGTデータ{deleted_count}件を削除しました")
@@ -481,7 +489,6 @@ async def upload_wbgt_data(
         batch_id = generate_batch_id(wbgt_file.filename)
         
         # UploadBatch作成
-        from app.models.flexible_sensor_data import UploadBatch, SensorType, UploadStatus, WBGTData
         batch = UploadBatch(
             batch_id=batch_id,
             sensor_type=SensorType.WBGT,
@@ -573,337 +580,6 @@ async def upload_wbgt_data(
         raise HTTPException(status_code=500, detail=f"WBGTアップロード失敗: {str(e)}")
 
 
-@router.post("/upload/race-records")
-async def upload_race_records(
-    competition_id: str = Form(...),
-    files: List[UploadFile] = File(...),
-    overwrite: bool = Form(True),
-    db: Session = Depends(get_db),
-    current_admin: AdminUser = Depends(get_current_admin)
-):
-    """大会記録データアップロード - 元のadmin.py方式"""
-    
-    competition = db.query(Competition).filter_by(competition_id=competition_id).first()
-    if not competition:
-        raise HTTPException(status_code=404, detail="大会が見つかりません")
-    
-    try:
-        # 上書き処理：既存データを削除
-        if overwrite:
-            from app.models.competition import RaceRecord
-            deleted_count = db.query(RaceRecord).filter_by(competition_id=competition_id).delete()
-            db.commit()
-            print(f"既存大会記録データ{deleted_count}件を削除しました")
-        
-        total_csv_records = 0
-        saved_records = 0
-        failed_records = 0
-        errors = []
-        
-        for file in files:
-            if not file.filename.endswith('.csv'):
-                errors.append(f"ファイル '{file.filename}' はCSVではありません")
-                continue
-            
-            try:
-                # CSVファイル読み込み
-                content = await file.read()
-                encoding = detect_encoding(content)
-                
-                try:
-                    df = pd.read_csv(io.BytesIO(content), encoding=encoding)
-                except UnicodeDecodeError:
-                    # フォールバック処理
-                    for fallback_encoding in ['utf-8', 'shift_jis', 'cp932']:
-                        try:
-                            df = pd.read_csv(io.BytesIO(content), encoding=fallback_encoding)
-                            break
-                        except UnicodeDecodeError:
-                            continue
-                    else:
-                        errors.append(f"ファイル '{file.filename}' の文字コードを認識できませんでした")
-                        continue
-                
-                print(f"📊 {file.filename}: {len(df)}行, 列: {list(df.columns)}")
-                
-                # 列名の空白除去
-                df.columns = df.columns.str.strip()
-                
-                # ゼッケン番号列の検索
-                bib_number_col = None
-                for col in df.columns:
-                    if any(keyword in str(col).lower() for keyword in ['no.', 'no', 'ゼッケン', 'bib', '番号']):
-                        bib_number_col = col
-                        break
-                
-                if not bib_number_col:
-                    errors.append(f"ファイル '{file.filename}' にゼッケン番号列が見つかりません")
-                    continue
-                
-                # 認識可能な列マッピング
-                column_mapping = {
-                    'swim_start': None,
-                    'swim_finish': None,
-                    'bike_start': None,
-                    'bike_finish': None,
-                    'run_start': None,
-                    'run_finish': None
-                }
-                
-                # LAP列の検索
-                lap_columns = []
-                
-                for col in df.columns:
-                    col_lower = str(col).lower()
-                    if 'swim' in col_lower and 'start' in col_lower:
-                        column_mapping['swim_start'] = col
-                    elif 'swim' in col_lower and ('finish' in col_lower or 'end' in col_lower):
-                        column_mapping['swim_finish'] = col
-                    elif 'bike' in col_lower and 'start' in col_lower:
-                        column_mapping['bike_start'] = col
-                    elif 'bike' in col_lower and ('finish' in col_lower or 'end' in col_lower):
-                        column_mapping['bike_finish'] = col
-                    elif 'run' in col_lower and 'start' in col_lower:
-                        column_mapping['run_start'] = col
-                    elif 'run' in col_lower and ('finish' in col_lower or 'end' in col_lower):
-                        column_mapping['run_finish'] = col
-                    elif any(lap_keyword in col_lower for lap_keyword in ['lap', 'bl', 'checkpoint']):
-                        lap_columns.append(col)
-                
-                # データ処理
-                file_records = 0
-                for index, row in df.iterrows():
-                    try:
-                        # ゼッケン番号取得
-                        bib_number = str(row[bib_number_col]).strip()
-                        if not bib_number or bib_number == 'nan':
-                            continue
-                        
-                        # 時刻データの解析
-                        def parse_time(time_str):
-                            if pd.isna(time_str) or str(time_str).strip() == '':
-                                return None
-                            try:
-                                return pd.to_datetime(str(time_str).strip())
-                            except:
-                                return None
-                        
-                        # 基本競技時刻
-                        swim_start = parse_time(row.get(column_mapping['swim_start']))
-                        swim_finish = parse_time(row.get(column_mapping['swim_finish']))
-                        bike_start = parse_time(row.get(column_mapping['bike_start']))
-                        bike_finish = parse_time(row.get(column_mapping['bike_finish']))
-                        run_start = parse_time(row.get(column_mapping['run_start']))
-                        run_finish = parse_time(row.get(column_mapping['run_finish']))
-                        
-                        # LAP時刻データ収集
-                        lap_times = {}
-                        for lap_col in lap_columns:
-                            lap_time = parse_time(row.get(lap_col))
-                            if lap_time:
-                                lap_times[lap_col] = lap_time.isoformat()
-                        
-                        # RaceRecordオブジェクト作成
-                        from app.models.competition import RaceRecord
-                        race_record = RaceRecord(
-                            competition_id=competition_id,
-                            race_number=bib_number,  # ゼッケン番号
-                            user_id=None,  # マッピング前は空
-                            swim_start=swim_start,
-                            swim_finish=swim_finish,
-                            bike_start=bike_start,
-                            bike_finish=bike_finish,
-                            run_start=run_start,
-                            run_finish=run_finish,
-                            lap_times=lap_times if lap_times else None,
-                            source_file=file.filename
-                        )
-                        
-                        db.add(race_record)
-                        file_records += 1
-                        saved_records += 1
-                        
-                    except Exception as e:
-                        failed_records += 1
-                        errors.append(f"ファイル '{file.filename}' 行{index+1}: {str(e)}")
-                
-                total_csv_records += len(df)
-                print(f"✅ {file.filename}: {file_records}件保存")
-                
-            except Exception as e:
-                errors.append(f"ファイル '{file.filename}' 処理エラー: {str(e)}")
-        
-        db.commit()
-        
-        return {
-            "success": saved_records > 0,
-            "message": f"大会記録アップロード完了: {saved_records}件保存",
-            "total_csv_records": total_csv_records,
-            "saved_records": saved_records,
-            "failed_records": failed_records,
-            "errors": errors
-        }
-        
-    except Exception as e:
-        db.rollback()
-        raise HTTPException(
-            status_code=500,
-            detail=f"大会記録アップロードエラー: {str(e)}"
-        )
-
-
-@router.post("/upload/mapping")
-async def upload_mapping_data(
-    mapping_file: UploadFile = File(...),
-    competition_id: str = Form(...),
-    overwrite: bool = Form(True),
-    db: Session = Depends(get_db),
-    current_admin: AdminUser = Depends(get_current_admin)
-):
-    """マッピングデータアップロード - 元のadmin.py方式"""
-    
-    if not mapping_file.filename.lower().endswith('.csv'):
-        raise HTTPException(status_code=400, detail="CSVファイルのみアップロード可能です")
-    
-    competition = db.query(Competition).filter_by(competition_id=competition_id).first()
-    if not competition:
-        raise HTTPException(status_code=400, detail=f"大会ID '{competition_id}' が見つかりません")
-    
-    try:
-        # 上書き処理：既存マッピングを削除
-        if overwrite:
-            from app.models.flexible_sensor_data import FlexibleSensorMapping
-            existing_count = db.query(FlexibleSensorMapping).filter_by(competition_id=competition_id).delete()
-            db.commit()
-            print(f"既存マッピング削除: {existing_count}件")
-        
-        # CSVファイル読み込み
-        content = await mapping_file.read()
-        encoding = detect_encoding(content)
-        
-        try:
-            df = pd.read_csv(io.BytesIO(content), encoding=encoding)
-        except UnicodeDecodeError:
-            # フォールバック処理
-            for fallback_encoding in ['utf-8', 'shift_jis', 'cp932']:
-                try:
-                    df = pd.read_csv(io.BytesIO(content), encoding=fallback_encoding)
-                    break
-                except UnicodeDecodeError:
-                    continue
-            else:
-                raise HTTPException(status_code=400, detail="CSVファイル読み込み失敗")
-        
-        if df.empty:
-            raise HTTPException(status_code=400, detail="CSVファイルが空です")
-        
-        # 列名の空白除去
-        df.columns = df.columns.str.strip()
-        
-        # 必須列チェック
-        if 'user_id' not in df.columns:
-            raise HTTPException(status_code=400, detail="user_id列が必要です")
-        
-        # 認識するセンサー列
-        sensor_column_mapping = {
-            'skin_temp_sensor_id': 'skin_temperature_sensor_id',
-            'core_temp_sensor_id': 'core_temperature_sensor_id',
-            'heart_rate_sensor_id': 'heart_rate_sensor_id',
-            'skin_temperature_sensor_id': 'skin_temperature_sensor_id',
-            'core_temperature_sensor_id': 'core_temperature_sensor_id',
-            'heart_rate_id': 'heart_rate_sensor_id',
-        }
-        
-        # 大会記録列
-        race_number_col = None
-        for col in df.columns:
-            if any(keyword in str(col).lower() for keyword in ['race_number', 'ゼッケン', 'bib', 'no']):
-                race_number_col = col
-                break
-        
-        processed = 0
-        skipped = 0
-        errors = []
-        race_number_mappings = 0
-        
-        for index, row in df.iterrows():
-            try:
-                user_id = str(row.get('user_id', '')).strip()
-                
-                if not user_id or user_id == 'nan':
-                    skipped += 1
-                    continue
-                
-                # ユーザー存在チェック
-                from app.models.user import User
-                user = db.query(User).filter_by(user_id=user_id).first()
-                if not user:
-                    errors.append(f"行{index+1}: ユーザーID '{user_id}' が見つかりません")
-                    skipped += 1
-                    continue
-                
-                # センサーIDの収集
-                sensor_data = {}
-                for csv_col, mapped_col in sensor_column_mapping.items():
-                    if csv_col in df.columns:
-                        sensor_id = str(row.get(csv_col, '')).strip()
-                        if sensor_id and sensor_id != 'nan':
-                            sensor_data[mapped_col] = sensor_id
-                
-                # ゼッケン番号の処理
-                race_number = None
-                if race_number_col and race_number_col in df.columns:
-                    race_num_value = str(row.get(race_number_col, '')).strip()
-                    if race_num_value and race_num_value != 'nan':
-                        race_number = race_num_value
-                
-                # マッピング作成
-                from app.models.flexible_sensor_data import FlexibleSensorMapping
-                mapping = FlexibleSensorMapping(
-                    user_id=user_id,
-                    competition_id=competition_id,
-                    skin_temperature_sensor_id=sensor_data.get('skin_temperature_sensor_id'),
-                    core_temperature_sensor_id=sensor_data.get('core_temperature_sensor_id'),
-                    heart_rate_sensor_id=sensor_data.get('heart_rate_sensor_id'),
-                    race_number=race_number
-                )
-                
-                db.add(mapping)
-                processed += 1
-                
-                # 大会記録にuser_idを適用
-                if race_number:
-                    from app.models.competition import RaceRecord
-                    race_records = db.query(RaceRecord).filter_by(
-                        competition_id=competition_id,
-                        race_number=race_number
-                    ).all()
-                    
-                    for record in race_records:
-                        record.user_id = user_id
-                        race_number_mappings += 1
-                
-            except Exception as e:
-                errors.append(f"行{index+1}: {str(e)}")
-                skipped += 1
-        
-        db.commit()
-        
-        return {
-            "success": processed > 0,
-            "message": f"マッピング処理完了: {processed}件作成",
-            "total_records": len(df),
-            "processed_records": processed,
-            "skipped_records": skipped,
-            "race_number_mappings": race_number_mappings,
-            "errors": errors
-        }
-        
-    except Exception as e:
-        db.rollback()
-        raise HTTPException(status_code=500, detail=f"マッピングアップロード失敗: {str(e)}")
-
-# data_uploads.py に追加するエンドポイント
 
 @router.get("/race-records/status")
 async def get_race_records_status(
@@ -914,7 +590,6 @@ async def get_race_records_status(
     """大会記録アップロード状況取得"""
     
     try:
-        # クエリ構築
         from app.models.competition import RaceRecord
         query = db.query(RaceRecord)
         if competition_id:
@@ -922,12 +597,10 @@ async def get_race_records_status(
         
         records = query.all()
         
-        # 統計計算
         total_records = len(records)
         mapped_records = len([r for r in records if r.user_id is not None])
         unmapped_records = total_records - mapped_records
         
-        # 大会別統計
         by_competition = {}
         for record in records:
             comp_id = record.competition_id
@@ -937,8 +610,7 @@ async def get_race_records_status(
                     "competition_name": competition.name if competition else "Unknown",
                     "total_records": 0,
                     "mapped_records": 0,
-                    "unmapped_records": 0,
-                    "latest_upload": None
+                    "unmapped_records": 0
                 }
             
             by_competition[comp_id]["total_records"] += 1
@@ -946,15 +618,7 @@ async def get_race_records_status(
                 by_competition[comp_id]["mapped_records"] += 1
             else:
                 by_competition[comp_id]["unmapped_records"] += 1
-            
-            # 最新アップロード時刻（created_atがある場合）
-            if hasattr(record, 'created_at') and record.created_at:
-                current_latest = by_competition[comp_id]["latest_upload"]
-                record_time_str = record.created_at.isoformat()
-                if current_latest is None or record_time_str > current_latest:
-                    by_competition[comp_id]["latest_upload"] = record_time_str
         
-        # レスポンス構築
         return {
             "success": True,
             "total_records": total_records,
@@ -966,125 +630,118 @@ async def get_race_records_status(
         }
         
     except Exception as e:
-        error_message = f"大会記録状況取得エラー: {str(e)}"
-        print(f"❌ {error_message}")
-        raise HTTPException(status_code=500, detail=error_message)
+        raise HTTPException(status_code=500, detail=f"大会記録状況取得エラー: {str(e)}")
 
 
-@router.get("/race-records/details")
-async def get_race_records_details(
-    competition_id: str = Query(...),
+# ===== マッピング関連エンドポイント =====
+
+@router.post("/upload/mapping")
+async def upload_mapping_data(
+    mapping_file: UploadFile = File(...),
+    competition_id: str = Form(...),
+    overwrite: bool = Form(True),
     db: Session = Depends(get_db),
     current_admin: AdminUser = Depends(get_current_admin)
 ):
-    """大会記録詳細情報取得"""
+    """マッピングデータアップロード（FlexibleCSVService使用）"""
+    
+    if not mapping_file.filename.lower().endswith('.csv'):
+        raise HTTPException(status_code=400, detail="CSVファイルのみアップロード可能です")
+    
+    competition = db.query(Competition).filter_by(competition_id=competition_id).first()
+    if not competition:
+        raise HTTPException(status_code=400, detail=f"大会ID '{competition_id}' が見つかりません")
+    
+    csv_service = FlexibleCSVService()
     
     try:
-        # 大会存在チェック
-        competition = db.query(Competition).filter_by(competition_id=competition_id).first()
-        if not competition:
-            raise HTTPException(status_code=404, detail="Competition not found")
+        content = await mapping_file.read()
+        await mapping_file.seek(0)
         
-        # 大会記録取得
-        from app.models.competition import RaceRecord
-        records = db.query(RaceRecord).filter_by(competition_id=competition_id).all()
+        result = await csv_service.process_mapping_data(
+            mapping_file=mapping_file,
+            competition_id=competition_id,
+            db=db,
+            overwrite=overwrite
+        )
         
-        race_details = []
-        for record in records:
-            # 競技時間計算
-            swim_duration = None
-            bike_duration = None
-            run_duration = None
-            total_duration = None
-            
-            if record.swim_start and record.swim_finish:
-                swim_duration = (record.swim_finish - record.swim_start).total_seconds()
-            
-            if record.bike_start and record.bike_finish:
-                bike_duration = (record.bike_finish - record.bike_start).total_seconds()
-            
-            if record.run_start and record.run_finish:
-                run_duration = (record.run_finish - record.run_start).total_seconds()
-            
-            # 全体時間の計算
-            if record.swim_start and record.run_finish:
-                total_duration = (record.run_finish - record.swim_start).total_seconds()
-            
-            # ユーザー情報取得
-            user_info = None
-            if record.user_id:
-                from app.models.user import User
-                user = db.query(User).filter_by(user_id=record.user_id).first()
-                if user:
-                    user_info = {
-                        "user_id": user.user_id,
-                        "full_name": user.full_name,
-                        "email": user.email
-                    }
-            
-            race_details.append({
-                "id": record.id,
-                "race_number": record.race_number,
-                "user_id": record.user_id,
-                "user_info": user_info,
-                "is_mapped": record.user_id is not None,
-                "swim_start": record.swim_start.isoformat() if record.swim_start else None,
-                "swim_finish": record.swim_finish.isoformat() if record.swim_finish else None,
-                "bike_start": record.bike_start.isoformat() if record.bike_start else None,
-                "bike_finish": record.bike_finish.isoformat() if record.bike_finish else None,
-                "run_start": record.run_start.isoformat() if record.run_start else None,
-                "run_finish": record.run_finish.isoformat() if record.run_finish else None,
-                "swim_duration_seconds": swim_duration,
-                "bike_duration_seconds": bike_duration,
-                "run_duration_seconds": run_duration,
-                "total_duration_seconds": total_duration,
-                "lap_times": record.lap_times,  # JSON形式のLAPデータ
-                "source_file": record.source_file,
-                "created_at": record.created_at.isoformat() if hasattr(record, 'created_at') and record.created_at else None
-            })
+        batch_id = f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{mapping_file.filename}"
         
-        return {
-            "success": True,
-            "competition_id": competition_id,
-            "competition_name": competition.name,
-            "total_records": len(records),
-            "records": race_details
-        }
-        
-    except Exception as e:
-        error_message = f"大会記録詳細取得エラー: {str(e)}"
-        print(f"❌ {error_message}")
-        raise HTTPException(status_code=500, detail=error_message)
-
-
-@router.delete("/race-records/{competition_id}")
-async def delete_race_records(
-    competition_id: str,
-    db: Session = Depends(get_db),
-    current_admin: AdminUser = Depends(get_current_admin)
-):
-    """大会記録削除"""
-    
-    try:
-        # 大会存在チェック
-        competition = db.query(Competition).filter_by(competition_id=competition_id).first()
-        if not competition:
-            raise HTTPException(status_code=404, detail="Competition not found")
-        
-        # 削除実行
-        from app.models.competition import RaceRecord
-        deleted_count = db.query(RaceRecord).filter_by(competition_id=competition_id).delete()
+        batch = UploadBatch(
+            batch_id=batch_id,
+            sensor_type=SensorType.OTHER,
+            competition_id=competition_id,
+            file_name=mapping_file.filename,
+            total_records=result["total_records"],
+            success_records=result["processed_records"],
+            failed_records=result["skipped_records"],
+            status=UploadStatus.SUCCESS if result["success"] else UploadStatus.PARTIAL
+        )
+        db.add(batch)
         db.commit()
         
         return {
-            "success": True,
-            "message": f"大会'{competition.name}'の記録{deleted_count}件を削除しました",
-            "deleted_records": deleted_count,
-            "competition_id": competition_id
+            "success": result["success"],
+            "message": result["message"],
+            "total_records": result["total_records"],
+            "processed_records": result["processed_records"],
+            "skipped_records": result["skipped_records"],
+            "errors": result.get("errors", []),
+            "batch_id": batch_id
         }
-        
+    
     except Exception as e:
         db.rollback()
-        error_message = f"大会記録削除エラー: {str(e)}"
-        print(f"❌ {error_message}")
-        raise HTTPException(status_code=500, detail=error_message)
+        raise HTTPException(status_code=500, detail=f"マッピングアップロード失敗: {str(e)}")
+
+
+@router.post("/upload/race-records")
+async def upload_race_records(
+    competition_id: str = Form(...),
+    files: List[UploadFile] = File(...),
+    db: Session = Depends(get_db),
+    current_admin: AdminUser = Depends(get_current_admin)
+):
+    """大会記録データアップロード（FlexibleCSVService使用）"""
+    
+    for file in files:
+        if not file.filename.lower().endswith('.csv'):
+            raise HTTPException(status_code=400, detail=f"CSVファイルのみアップロード可能です: {file.filename}")
+    
+    if len(files) == 0:
+        raise HTTPException(status_code=400, detail="最低1つのCSVファイルが必要です")
+    
+    competition = db.query(Competition).filter_by(competition_id=competition_id).first()
+    if not competition:
+        raise HTTPException(status_code=400, detail=f"大会ID '{competition_id}' が見つかりません")
+    
+    csv_service = FlexibleCSVService()
+    
+    try:
+        file_info = []
+        
+        for file in files:
+            content = await file.read()
+            await file.seek(0)
+        
+        result = await csv_service.process_race_record_data(
+            race_files=files,
+            competition_id=competition_id,
+            db=db
+        )
+        
+        result.update({
+            "competition_id": competition_id,
+            "competition_name": competition.name,
+            "uploaded_files": file_info,
+            "upload_time": datetime.now().isoformat(),
+            "uploaded_by": current_admin.admin_id
+        })
+        
+        return result
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"大会記録アップロード失敗: {str(e)}")
