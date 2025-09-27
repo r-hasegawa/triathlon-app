@@ -381,7 +381,7 @@ async def upload_heart_rate(
             batch.status = UploadStatus.SUCCESS if failed_count == 0 else UploadStatus.PARTIAL
             
             db.commit()
-            print("================================")
+
             results.append({
                 "file": file.filename,
                 "batch_id": batch_id,
@@ -390,8 +390,7 @@ async def upload_heart_rate(
                 "failed": failed_count,
                 "status": batch.status.value
             })
-            print("|||||||||||||||||||||||||||||||")
-            print(batch.status.value)
+            
         except Exception as e:
             db.rollback()
             results.append({
