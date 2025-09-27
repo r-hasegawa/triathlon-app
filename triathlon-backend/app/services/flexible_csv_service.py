@@ -1259,3 +1259,232 @@ class FlexibleCSVService:
             print(f"区間判定エラー: {e}")
         
         return phases
+
+
+    def process_heart_rate_tcx(
+        self,
+        tcx_string: str,
+        competition_id: str,
+        batch_id: str,
+        filename: str,
+        sensor_id: str = "GARMIN_DEFAULT"
+    ) -> Dict[str, Any]:
+        """
+        Garmin TCXファイルの心拍データ処理（日本時間変換対応）
+        
+        仕様変更：
+        - TCXの時刻データは通常UTCであることが多い
+        - 日本の標準時差は+9時間（UTC+9）
+        - DBに格納する際は日本時間（JST）に変換する
+        """
+        try:
+            # XML解析
+            root = ET.fromstring(tcx_string)
+            
+            # TCXの名前空間
+            namespaces = {
+                'tcx': 'http://www.garmin.com/xmlschemas/TrainingCenterDatabase/v2'
+            }
+            
+            processed_count = 0
+            failed_count = 0
+            errors = []
+            trackpoints_data = []
+            
+            # 全てのTrackpointを検索
+            trackpoints = root.findall('.//tcx:Trackpoint', namespaces)
+            
+            print(f"📊 TCX解析開始: {filename}")
+            print(f"   - センサーID: {sensor_id}")
+            print(f"   - Trackpoint数: {len(trackpoints)}")
+            
+            for idx, trackpoint in enumerate(trackpoints):
+                try:
+                    # 時刻取得
+                    time_elem = trackpoint.find('tcx:Time', namespaces)
+                    if time_elem is None:
+                        failed_count += 1
+                        continue
+                    
+                    time_str = time_elem.text
+                    
+                    # 🔧 日本時間変換処理
+                    # TCXの時刻はISO8601形式（例: 2023-07-15T08:30:00Z）
+                    parsed_time = self._parse_tcx_time_to_jst(time_str)
+                    
+                    if parsed_time is None:
+                        errors.append(f"Trackpoint {idx+1}: 時刻解析失敗 ({time_str})")
+                        failed_count += 1
+                        continue
+                    
+                    # 心拍数取得
+                    hr_elem = trackpoint.find('.//tcx:HeartRateBpm/tcx:Value', namespaces)
+                    heart_rate = None
+                    if hr_elem is not None:
+                        try:
+                            heart_rate = int(hr_elem.text)
+                        except (ValueError, TypeError):
+                            pass
+                    
+                    # データ保存用辞書作成
+                    trackpoint_data = {
+                        'sensor_id': sensor_id,
+                        'time': parsed_time,  # 日本時間に変換済み
+                        'heart_rate': heart_rate,
+                        'upload_batch_id': batch_id,
+                        'competition_id': competition_id
+                    }
+                    
+                    trackpoints_data.append(trackpoint_data)
+                    processed_count += 1
+                    
+                except Exception as e:
+                    errors.append(f"Trackpoint {idx+1}: {str(e)}")
+                    failed_count += 1
+                    continue
+            
+            # データベース保存
+            if trackpoints_data:
+                self._save_heart_rate_data(trackpoints_data)
+            
+            # バッチ記録作成
+            self._create_heart_rate_batch(
+                batch_id=batch_id,
+                filename=filename,
+                sensor_id=sensor_id,
+                competition_id=competition_id,
+                total_records=len(trackpoints),
+                success_records=processed_count,
+                failed_records=failed_count
+            )
+            
+            print(f"✅ TCX処理完了: {processed_count}件成功, {failed_count}件失敗")
+            
+            return {
+                "filename": filename,
+                "status": "success" if processed_count > 0 else "failed",
+                "batch_id": batch_id,
+                "total": len(trackpoints),
+                "success": processed_count,
+                "failed": failed_count,
+                "trackpoints_total": len(trackpoints),
+                "sensor_ids": [sensor_id],
+                "error": errors[0] if errors and processed_count == 0 else None,
+                "message": f"心拍データ {processed_count}件を日本時間で保存しました"
+            }
+            
+        except ET.ParseError as e:
+            return {
+                "filename": filename,
+                "status": "failed",
+                "error": f"XMLパースエラー: {str(e)}",
+                "total": 0,
+                "success": 0,
+                "failed": 0
+            }
+        except Exception as e:
+            return {
+                "filename": filename,
+                "status": "failed",
+                "error": f"TCX処理エラー: {str(e)}",
+                "total": 0,
+                "success": 0,
+                "failed": 0
+            }
+    
+    def _parse_tcx_time_to_jst(self, time_str: str) -> Optional[datetime]:
+        """
+        TCXの時刻文字列を日本時間（JST）に変換
+        
+        Args:
+            time_str: TCXの時刻文字列（例: "2023-07-15T08:30:00Z"）
+        
+        Returns:
+            datetime: 日本時間（JST）のdatetimeオブジェクト
+        """
+        try:
+            # ISO8601形式の解析
+            if time_str.endswith('Z'):
+                # UTC時刻の場合（例: "2023-07-15T08:30:00Z"）
+                utc_time = datetime.fromisoformat(time_str.replace('Z', '+00:00'))
+                
+                # UTC → JST変換（+9時間）
+                jst_time = utc_time.astimezone(timezone(timedelta(hours=9)))
+                
+                # タイムゾーン情報を除去してnaive datetimeとして返す
+                return jst_time.replace(tzinfo=None)
+                
+            elif '+' in time_str or '-' in time_str[-6:]:
+                # タイムゾーン付きの場合（例: "2023-07-15T08:30:00+00:00"）
+                aware_time = datetime.fromisoformat(time_str)
+                
+                # JST に変換
+                jst_time = aware_time.astimezone(timezone(timedelta(hours=9)))
+                
+                # タイムゾーン情報を除去
+                return jst_time.replace(tzinfo=None)
+                
+            else:
+                # タイムゾーン情報がない場合
+                naive_time = datetime.fromisoformat(time_str)
+                
+                # ⚠️ この場合、元データがUTCかJSTか判断が困難
+                # 仕様書に基づき、+9時間してJSTとして扱う
+                jst_time = naive_time + timedelta(hours=9)
+                
+                print(f"⚠️ タイムゾーン不明の時刻を+9時間してJST扱い: {time_str} → {jst_time}")
+                
+                return jst_time
+                
+        except Exception as e:
+            print(f"❌ 時刻解析エラー: {time_str} - {str(e)}")
+            return None
+    
+    def _save_heart_rate_data(self, trackpoints_data: List[Dict[str, Any]]):
+        """心拍データをデータベースに保存"""
+        from app.models.flexible_sensor_data import HeartRateData
+        
+        for data in trackpoints_data:
+            heart_rate_record = HeartRateData(
+                sensor_id=data['sensor_id'],
+                time=data['time'],  # 日本時間（JST）
+                heart_rate=data['heart_rate'],
+                upload_batch_id=data['upload_batch_id'],
+                competition_id=data['competition_id']
+            )
+            self.db.add(heart_rate_record)
+        
+        self.db.commit()
+    
+    def _create_heart_rate_batch(
+        self, 
+        batch_id: str, 
+        filename: str, 
+        sensor_id: str,
+        competition_id: str,
+        total_records: int,
+        success_records: int,
+        failed_records: int
+    ):
+        """心拍データバッチ記録を作成"""
+        from app.models.flexible_sensor_data import UploadBatch, SensorType, UploadStatus
+        
+        status = UploadStatus.SUCCESS if failed_records == 0 else (
+            UploadStatus.PARTIAL if success_records > 0 else UploadStatus.FAILED
+        )
+        
+        batch = UploadBatch(
+            batch_id=batch_id,
+            sensor_type=SensorType.HEART_RATE,
+            competition_id=competition_id,
+            file_name=filename,
+            total_records=total_records,
+            success_records=success_records,
+            failed_records=failed_records,
+            status=status,
+            uploaded_by="admin",
+            notes=f"センサーID: {sensor_id}, 日本時間変換適用"
+        )
+        
+        self.db.add(batch)
+        self.db.commit()

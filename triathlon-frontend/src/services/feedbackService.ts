@@ -1,4 +1,4 @@
-// src/services/feedbackService.ts
+// src/services/feedbackService.ts - 修正版
 
 import { api } from './api';
 
@@ -43,50 +43,52 @@ export const feedbackService = {
     }
   },
 
-  // 指定された大会のフィードバックデータを取得
+  // 指定された大会のフィードバックデータを取得（統合API使用）
   async getFeedbackData(competitionId: string): Promise<FeedbackDataResponse> {
     try {
+      console.log('Making feedback request to:', `/me/feedback-data/${competitionId}`);
       const response = await api.get(`/me/feedback-data/${competitionId}`);
-      return response.data;
-    } catch (error) {
+      
+      // レスポンスデータの構造を確認
+      console.log('Feedback API response:', response.data);
+      
+      return {
+        sensor_data: response.data.sensor_data || [],
+        race_record: response.data.race_record || null,
+        competition: response.data.competition || {
+          id: competitionId,
+          name: 'Unknown Competition',
+          date: new Date().toISOString()
+        }
+      };
+    } catch (error: any) {
       console.error('Error fetching feedback data:', error);
+      console.error('Error details:', error.response?.data);
       throw new Error('フィードバックデータの取得に失敗しました');
     }
   },
 
-  // センサーデータのみを取得
+  // センサーデータのみを取得（互換性のため残すが、統合APIを推奨）
   async getSensorData(competitionId: string, params?: {
     start_date?: string;
     end_date?: string;
   }): Promise<SensorDataPoint[]> {
     try {
-      const queryParams = new URLSearchParams();
-      queryParams.append('competition_id', competitionId);
-      
-      if (params?.start_date) {
-        queryParams.append('start_date', params.start_date);
-      }
-      if (params?.end_date) {
-        queryParams.append('end_date', params.end_date);
-      }
-
-      console.log('Making request to:', `/me/sensor-data?${queryParams.toString()}`);
-      const response = await api.get(`/me/sensor-data?${queryParams.toString()}`);
-      return response.data || [];
-    } catch (error: any) {
+      // 統合APIからセンサーデータのみを抽出
+      const feedbackData = await this.getFeedbackData(competitionId);
+      return feedbackData.sensor_data;
+    } catch (error) {
       console.error('Error fetching sensor data:', error);
-      if (error.response?.status === 403) {
-        throw new Error('センサーデータへのアクセスが拒否されました。ログインし直してください。');
-      }
       return [];
     }
   },
 
-  // 大会記録データのみを取得
+  // 大会記録のみを取得（互換性のため残すが、統合APIを推奨）
   async getRaceRecord(competitionId: string): Promise<RaceRecord | null> {
     try {
-      const response = await api.get(`/me/race-records/${competitionId}`);
-      return response.data;
+      // 統合APIから大会記録のみを抽出
+      const feedbackData = await this.getFeedbackData(competitionId);
+      return feedbackData.race_record;
     } catch (error) {
       console.error('Error fetching race record:', error);
       return null;
@@ -107,11 +109,22 @@ export const feedbackService = {
   // 管理者用：指定ユーザーの大会データを取得
   async getAdminUserFeedbackData(userId: string, competitionId: string): Promise<FeedbackDataResponse> {
     try {
+      console.log('Making admin feedback request to:', `/admin/users/${userId}/feedback-data/${competitionId}`);
       const response = await api.get(`/admin/users/${userId}/feedback-data/${competitionId}`);
-      return response.data;
-    } catch (error) {
+      
+      return {
+        sensor_data: response.data.sensor_data || [],
+        race_record: response.data.race_record || null,
+        competition: response.data.competition || {
+          id: competitionId,
+          name: 'Unknown Competition',
+          date: new Date().toISOString()
+        }
+      };
+    } catch (error: any) {
       console.error('Error fetching admin feedback data:', error);
-      throw new Error('管理者用フィードバックデータの取得に失敗しました');
+      console.error('Error details:', error.response?.data);
+      throw new Error('管理者用フィードbackックデータの取得に失敗しました');
     }
   },
 };

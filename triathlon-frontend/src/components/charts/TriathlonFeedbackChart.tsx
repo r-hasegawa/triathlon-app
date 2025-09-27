@@ -1,3 +1,5 @@
+// TriathlonFeedbackChart.tsx - 時間範囲選択対応版
+
 import React, { useState, useEffect } from 'react';
 import {
   Chart as ChartJS,
@@ -29,13 +31,18 @@ ChartJS.register(
   Filler
 );
 
-// 型定義を削除（feedbackServiceからインポートするため）
 interface TriathlonFeedbackChartProps {
   userId?: string;
   competitionId?: string;
   competitions?: CompetitionRace[];
   height?: number;
   className?: string;
+  isAdminView?: boolean;
+}
+
+interface TimeRange {
+  start: string;
+  end: string;
 }
 
 export const TriathlonFeedbackChart: React.FC<TriathlonFeedbackChartProps> = ({
@@ -44,16 +51,16 @@ export const TriathlonFeedbackChart: React.FC<TriathlonFeedbackChartProps> = ({
   competitions = [],
   height = 500,
   className = '',
+  isAdminView = false,
 }) => {
   const [selectedCompetition, setSelectedCompetition] = useState<string>(
     competitionId || ''
   );
   const [sensorData, setSensorData] = useState<SensorDataPoint[]>([]);
   const [raceRecord, setRaceRecord] = useState<RaceRecord | null>(null);
-  const [timeRange, setTimeRange] = useState<{
-    start: string;
-    end: string;
-  } | null>(null);
+  const [timeRange, setTimeRange] = useState<TimeRange | null>(null);
+  const [customTimeRange, setCustomTimeRange] = useState<TimeRange | null>(null);
+  const [timeRangeMode, setTimeRangeMode] = useState<'auto' | 'race' | 'custom'>('auto');
   const [offsetMinutes, setOffsetMinutes] = useState<number>(10);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
@@ -70,10 +77,17 @@ export const TriathlonFeedbackChart: React.FC<TriathlonFeedbackChartProps> = ({
 
   // 選択された大会が変更されたらデータを取得
   useEffect(() => {
-    if (selectedCompetition && userId) {
+    if (selectedCompetition) {
       fetchFeedbackData();
     }
-  }, [selectedCompetition, userId]);
+  }, [selectedCompetition]);
+
+  // 時間範囲モードまたはオフセットが変更されたら再計算
+  useEffect(() => {
+    if (sensorData.length > 0) {
+      calculateTimeRange();
+    }
+  }, [timeRangeMode, offsetMinutes, raceRecord, sensorData]);
 
   const fetchFeedbackData = async () => {
     try {
@@ -87,72 +101,110 @@ export const TriathlonFeedbackChart: React.FC<TriathlonFeedbackChartProps> = ({
 
       console.log('Fetching feedback data for competition:', selectedCompetition);
 
-      // センサーデータと大会記録を個別に取得（エラーハンドリング改善）
-      let sensorData: SensorDataPoint[] = [];
-      let raceRecord: RaceRecord | null = null;
-
+      let feedbackData;
+      
       try {
-        sensorData = await feedbackService.getSensorData(selectedCompetition);
-        console.log('Sensor data received:', sensorData.length, 'records');
-      } catch (sensorError) {
-        console.warn('Sensor data fetch failed:', sensorError);
-        // センサーデータの取得に失敗してもエラーとしない
+        if (isAdminView && userId) {
+          console.log('Using admin API for user:', userId);
+          feedbackData = await feedbackService.getAdminUserFeedbackData(userId, selectedCompetition);
+        } else {
+          console.log('Using regular user API');
+          feedbackData = await feedbackService.getFeedbackData(selectedCompetition);
+        }
+        
+        console.log('Feedback data received:', {
+          sensorDataCount: feedbackData.sensor_data?.length || 0,
+          raceRecord: feedbackData.race_record,
+          competition: feedbackData.competition
+        });
+
+        setSensorData(feedbackData.sensor_data || []);
+        setRaceRecord(feedbackData.race_record);
+
+      } catch (apiError: any) {
+        console.error('API failed:', apiError);
+        setError(`データ取得エラー: ${apiError.message}`);
+        setSensorData([]);
+        setRaceRecord(null);
       }
-
-      try {
-        raceRecord = await feedbackService.getRaceRecord(selectedCompetition);
-        console.log('Race record received:', raceRecord);
-      } catch (raceError) {
-        console.warn('Race record fetch failed:', raceError);
-        // 大会記録の取得に失敗してもエラーとしない
-      }
-
-      setSensorData(sensorData || []);
-      setRaceRecord(raceRecord);
-
-      // 時間範囲の設定
-      calculateTimeRange(raceRecord);
 
     } catch (err: any) {
       console.error('Feedback data fetch error:', err);
       setError(err.message || 'データの取得に失敗しました');
+      setSensorData([]);
+      setRaceRecord(null);
     } finally {
       setIsLoading(false);
     }
   };
 
-  const calculateTimeRange = (race: RaceRecord | null) => {
-    if (!race) {
-      // 大会記録がない場合のデフォルト範囲
-      const now = new Date();
-      const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000);
-      setTimeRange({
-        start: oneHourAgo.toISOString(),
-        end: now.toISOString()
-      });
+  const calculateTimeRange = () => {
+    if (timeRangeMode === 'custom' && customTimeRange) {
+      setTimeRange(customTimeRange);
       return;
     }
 
-    // swim開始からrun終了までの範囲を計算
-    const startTime = race.swim_start;
-    let endTime = race.run_finish;
+    if (timeRangeMode === 'race' && raceRecord) {
+      // 大会記録ベースの時間範囲
+      let startTime: string | null = null;
+      let endTime: string | null = null;
 
-    // 仕様に従って欠損データを補完
-    if (!race.swim_finish && race.bike_start) {
-      race.swim_finish = race.bike_start;
-    }
-    if (!race.bike_finish && race.run_start) {
-      race.bike_finish = race.run_start;
+      if (raceRecord.swim_start) {
+        startTime = raceRecord.swim_start;
+      } else if (raceRecord.bike_start) {
+        startTime = raceRecord.bike_start;
+      } else if (raceRecord.run_start) {
+        startTime = raceRecord.run_start;
+      }
+
+      if (raceRecord.run_finish) {
+        endTime = raceRecord.run_finish;
+      } else if (raceRecord.bike_finish) {
+        endTime = raceRecord.bike_finish;
+      } else if (raceRecord.swim_finish) {
+        endTime = raceRecord.swim_finish;
+      }
+
+      if (startTime && endTime) {
+        const start = new Date(new Date(startTime).getTime() - offsetMinutes * 60 * 1000);
+        const end = new Date(new Date(endTime).getTime() + offsetMinutes * 60 * 1000);
+        
+        setTimeRange({
+          start: start.toISOString(),
+          end: end.toISOString()
+        });
+        
+        console.log('Race-based time range:', {
+          start: start.toISOString(),
+          end: end.toISOString(),
+          offset: offsetMinutes
+        });
+        return;
+      }
     }
 
-    if (startTime && endTime) {
-      // オフセットを適用
-      const start = new Date(new Date(startTime).getTime() - offsetMinutes * 60 * 1000);
-      const end = new Date(new Date(endTime).getTime() + offsetMinutes * 60 * 1000);
+    // auto: センサーデータベースの時間範囲
+    if (sensorData.length > 0) {
+      const timestamps = sensorData
+        .map(d => new Date(d.timestamp))
+        .sort((a, b) => a.getTime() - b.getTime());
+      
+      const startTime = timestamps[0];
+      const endTime = timestamps[timestamps.length - 1];
+      
+      const start = new Date(startTime.getTime() - offsetMinutes * 60 * 1000);
+      const end = new Date(endTime.getTime() + offsetMinutes * 60 * 1000);
       
       setTimeRange({
         start: start.toISOString(),
         end: end.toISOString()
+      });
+      
+      console.log('Auto time range from sensor data:', {
+        start: start.toISOString(),
+        end: end.toISOString(),
+        dataPoints: sensorData.length,
+        offset: offsetMinutes
       });
     }
   };
@@ -161,24 +213,36 @@ export const TriathlonFeedbackChart: React.FC<TriathlonFeedbackChartProps> = ({
     if (!sensorData.length) return { labels: [], datasets: [] };
 
     // 時間範囲でフィルタリング
-    const filteredData = timeRange 
-      ? sensorData.filter(point => {
-          const timestamp = new Date(point.timestamp);
-          return timestamp >= new Date(timeRange.start) && timestamp <= new Date(timeRange.end);
-        })
-      : sensorData;
+    let filteredData = sensorData;
+    if (timeRange) {
+      const startTime = new Date(timeRange.start);
+      const endTime = new Date(timeRange.end);
+      
+      filteredData = sensorData.filter(data => {
+        const dataTime = new Date(data.timestamp);
+        return dataTime >= startTime && dataTime <= endTime;
+      });
+      
+      console.log(`Filtered data: ${filteredData.length} / ${sensorData.length} points`);
+    }
+
+    if (filteredData.length === 0) {
+      console.warn('No data points after filtering');
+      return { labels: [], datasets: [] };
+    }
 
     const labels = filteredData.map(point => 
       new Date(point.timestamp).toLocaleTimeString('ja-JP', {
         hour: '2-digit',
-        minute: '2-digit'
+        minute: '2-digit',
+        second: '2-digit'
       })
     );
 
     const datasets = [];
 
     // 体表温度（左軸）
-    if (filteredData.some(point => point.skin_temperature !== undefined)) {
+    if (filteredData.some(point => point.skin_temperature !== undefined && point.skin_temperature !== null)) {
       datasets.push({
         label: '体表温度',
         data: filteredData.map(point => point.skin_temperature),
@@ -187,13 +251,13 @@ export const TriathlonFeedbackChart: React.FC<TriathlonFeedbackChartProps> = ({
         borderWidth: 2,
         tension: 0.4,
         yAxisID: 'y',
-        pointRadius: 1,
+        pointRadius: 0.5,
         pointHoverRadius: 5,
       });
     }
 
     // カプセル体温度（左軸）
-    if (filteredData.some(point => point.core_temperature !== undefined)) {
+    if (filteredData.some(point => point.core_temperature !== undefined && point.core_temperature !== null)) {
       datasets.push({
         label: 'カプセル体温',
         data: filteredData.map(point => point.core_temperature),
@@ -202,13 +266,13 @@ export const TriathlonFeedbackChart: React.FC<TriathlonFeedbackChartProps> = ({
         borderWidth: 2,
         tension: 0.4,
         yAxisID: 'y',
-        pointRadius: 1,
+        pointRadius: 0.5,
         pointHoverRadius: 5,
       });
     }
 
     // WBGT温度（左軸）
-    if (filteredData.some(point => point.wbgt_temperature !== undefined)) {
+    if (filteredData.some(point => point.wbgt_temperature !== undefined && point.wbgt_temperature !== null)) {
       datasets.push({
         label: 'WBGT温度',
         data: filteredData.map(point => point.wbgt_temperature),
@@ -217,13 +281,13 @@ export const TriathlonFeedbackChart: React.FC<TriathlonFeedbackChartProps> = ({
         borderWidth: 2,
         tension: 0.4,
         yAxisID: 'y',
-        pointRadius: 1,
+        pointRadius: 0.5,
         pointHoverRadius: 5,
       });
     }
 
     // 心拍数（右軸）
-    if (filteredData.some(point => point.heart_rate !== undefined)) {
+    if (filteredData.some(point => point.heart_rate !== undefined && point.heart_rate !== null)) {
       datasets.push({
         label: '心拍数',
         data: filteredData.map(point => point.heart_rate),
@@ -232,7 +296,7 @@ export const TriathlonFeedbackChart: React.FC<TriathlonFeedbackChartProps> = ({
         borderWidth: 2,
         tension: 0.4,
         yAxisID: 'y1',
-        pointRadius: 1,
+        pointRadius: 0.5,
         pointHoverRadius: 5,
       });
     }
@@ -330,69 +394,37 @@ export const TriathlonFeedbackChart: React.FC<TriathlonFeedbackChartProps> = ({
     };
   };
 
-  // 背景色の設定（競技区間）
-  const getBackgroundSegments = () => {
-    if (!raceRecord || !timeRange) return [];
-
-    const segments = [];
-    const canvasStart = new Date(timeRange.start);
-    const canvasEnd = new Date(timeRange.end);
-
-    // Swim区間 - 薄い水色
-    if (raceRecord.swim_start) {
-      const swimStart = new Date(raceRecord.swim_start);
-      const swimEnd = raceRecord.swim_finish ? new Date(raceRecord.swim_finish) : 
-                     (raceRecord.bike_start ? new Date(raceRecord.bike_start) : null);
-      
-      if (swimEnd) {
-        segments.push({
-          start: Math.max(canvasStart.getTime(), swimStart.getTime()),
-          end: Math.min(canvasEnd.getTime(), swimEnd.getTime()),
-          color: 'rgba(191, 219, 254, 0.3)' // 薄い水色
-        });
-      }
-    }
-
-    // Bike区間 - 薄い橙
-    if (raceRecord.bike_start) {
-      const bikeStart = new Date(raceRecord.bike_start);
-      const bikeEnd = raceRecord.bike_finish ? new Date(raceRecord.bike_finish) : 
-                     (raceRecord.run_start ? new Date(raceRecord.run_start) : null);
-      
-      if (bikeEnd) {
-        segments.push({
-          start: Math.max(canvasStart.getTime(), bikeStart.getTime()),
-          end: Math.min(canvasEnd.getTime(), bikeEnd.getTime()),
-          color: 'rgba(254, 215, 170, 0.3)' // 薄い橙
-        });
-      }
-    }
-
-    // Run区間 - 薄い黄緑
-    if (raceRecord.run_start) {
-      const runStart = new Date(raceRecord.run_start);
-      const runEnd = raceRecord.run_finish ? new Date(raceRecord.run_finish) : canvasEnd;
-      
-      segments.push({
-        start: Math.max(canvasStart.getTime(), runStart.getTime()),
-        end: Math.min(canvasEnd.getTime(), runEnd.getTime()),
-        color: 'rgba(187, 247, 208, 0.3)' // 薄い黄緑
-      });
-    }
-
-    return segments;
-  };
-
   const handleRefresh = () => {
     fetchFeedbackData();
   };
 
-  const handleOffsetChange = (newOffset: number) => {
-    setOffsetMinutes(newOffset);
-    if (raceRecord) {
-      calculateTimeRange(raceRecord);
+  const handleCustomTimeRangeChange = (field: 'start' | 'end', value: string) => {
+    const newCustomRange = {
+      ...customTimeRange,
+      [field]: value
+    } as TimeRange;
+    setCustomTimeRange(newCustomRange);
+    
+    if (timeRangeMode === 'custom') {
+      setTimeRange(newCustomRange);
     }
   };
+
+  // センサーデータの時間範囲を取得
+  const getDataTimeRange = () => {
+    if (sensorData.length === 0) return null;
+    
+    const timestamps = sensorData.map(d => new Date(d.timestamp));
+    const minTime = new Date(Math.min(...timestamps.map(t => t.getTime())));
+    const maxTime = new Date(Math.max(...timestamps.map(t => t.getTime())));
+    
+    return {
+      start: minTime.toISOString().slice(0, 16),
+      end: maxTime.toISOString().slice(0, 16)
+    };
+  };
+
+  const dataTimeRange = getDataTimeRange();
 
   return (
     <Card className={`p-6 ${className}`}>
@@ -419,21 +451,38 @@ export const TriathlonFeedbackChart: React.FC<TriathlonFeedbackChartProps> = ({
               </div>
             )}
 
-            {/* オフセット設定 */}
+            {/* 時間範囲モード選択 */}
             <div className="flex items-center gap-2">
-              <label className="text-sm font-medium text-gray-700">前後:</label>
+              <label className="text-sm font-medium text-gray-700">時間範囲:</label>
               <select
-                value={offsetMinutes}
-                onChange={(e) => handleOffsetChange(Number(e.target.value))}
+                value={timeRangeMode}
+                onChange={(e) => setTimeRangeMode(e.target.value as 'auto' | 'race' | 'custom')}
                 className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
               >
-                <option value={0}>0分</option>
-                <option value={5}>5分</option>
-                <option value={10}>10分</option>
-                <option value={15}>15分</option>
-                <option value={30}>30分</option>
+                <option value="auto">自動（センサーデータ範囲）</option>
+                <option value="race">大会記録範囲</option>
+                <option value="custom">カスタム</option>
               </select>
             </div>
+
+            {/* オフセット設定 */}
+            {(timeRangeMode === 'auto' || timeRangeMode === 'race') && (
+              <div className="flex items-center gap-2">
+                <label className="text-sm font-medium text-gray-700">前後:</label>
+                <select
+                  value={offsetMinutes}
+                  onChange={(e) => setOffsetMinutes(Number(e.target.value))}
+                  className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value={0}>0分</option>
+                  <option value={5}>5分</option>
+                  <option value={10}>10分</option>
+                  <option value={15}>15分</option>
+                  <option value={30}>30分</option>
+                  <option value={60}>60分</option>
+                </select>
+              </div>
+            )}
           </div>
 
           <Button
@@ -445,6 +494,38 @@ export const TriathlonFeedbackChart: React.FC<TriathlonFeedbackChartProps> = ({
             {isLoading ? '更新中...' : '更新'}
           </Button>
         </div>
+
+        {/* カスタム時間範囲設定 */}
+        {timeRangeMode === 'custom' && (
+          <div className="bg-gray-50 p-4 rounded-lg">
+            <h3 className="text-sm font-medium text-gray-700 mb-2">カスタム時間範囲</h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm text-gray-600 mb-1">開始時刻:</label>
+                <input
+                  type="datetime-local"
+                  value={customTimeRange?.start?.slice(0, 16) || dataTimeRange?.start || ''}
+                  onChange={(e) => handleCustomTimeRangeChange('start', e.target.value + ':00')}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+              <div>
+                <label className="block text-sm text-gray-600 mb-1">終了時刻:</label>
+                <input
+                  type="datetime-local"
+                  value={customTimeRange?.end?.slice(0, 16) || dataTimeRange?.end || ''}
+                  onChange={(e) => handleCustomTimeRangeChange('end', e.target.value + ':00')}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+            </div>
+            {dataTimeRange && (
+              <p className="text-xs text-gray-500 mt-2">
+                データ範囲: {new Date(dataTimeRange.start).toLocaleString('ja-JP')} 〜 {new Date(dataTimeRange.end).toLocaleString('ja-JP')}
+              </p>
+            )}
+          </div>
+        )}
 
         {/* エラー表示 */}
         {error && (
@@ -493,37 +574,9 @@ export const TriathlonFeedbackChart: React.FC<TriathlonFeedbackChartProps> = ({
               </div>
             </div>
           ) : (
-            <>
-              {/* 背景色（競技区間） */}
-              <div className="absolute inset-4 flex">
-                {getBackgroundSegments().map((segment, index) => {
-                  const totalDuration = timeRange ? 
-                    new Date(timeRange.end).getTime() - new Date(timeRange.start).getTime() : 1;
-                  const segmentStart = timeRange ?
-                    (segment.start - new Date(timeRange.start).getTime()) / totalDuration * 100 : 0;
-                  const segmentWidth = 
-                    (segment.end - segment.start) / totalDuration * 100;
-
-                  return (
-                    <div
-                      key={index}
-                      className="absolute h-full"
-                      style={{
-                        left: `${segmentStart}%`,
-                        width: `${segmentWidth}%`,
-                        backgroundColor: segment.color,
-                        borderRadius: '4px',
-                      }}
-                    />
-                  );
-                })}
-              </div>
-              
-              {/* チャート */}
-              <div className="relative z-10 h-full">
-                <Line data={formatChartData()} options={getChartOptions()} />
-              </div>
-            </>
+            <div className="h-full">
+              <Line data={formatChartData()} options={getChartOptions()} />
+            </div>
           )}
         </div>
 
@@ -531,7 +584,7 @@ export const TriathlonFeedbackChart: React.FC<TriathlonFeedbackChartProps> = ({
         {sensorData.length > 0 && selectedCompetition && (
           <div className="flex justify-between text-sm text-gray-500">
             <span>
-              {sensorData.length}件のデータポイントを表示中
+              {formatChartData().labels.length}/{sensorData.length}件のデータポイントを表示中
             </span>
             {timeRange && (
               <span>
@@ -543,19 +596,19 @@ export const TriathlonFeedbackChart: React.FC<TriathlonFeedbackChartProps> = ({
         )}
 
         {/* 競技区間の凡例 */}
-        {raceRecord && (
+        {raceRecord && timeRangeMode === 'race' && (
           <div className="flex flex-wrap gap-4 text-sm">
             <div className="flex items-center gap-2">
               <div className="w-4 h-4 rounded" style={{ backgroundColor: 'rgba(191, 219, 254, 0.6)' }}></div>
-              <span>Swim</span>
+              <span>Swim ({raceRecord.swim_start ? new Date(raceRecord.swim_start).toLocaleTimeString('ja-JP') : '未設定'})</span>
             </div>
             <div className="flex items-center gap-2">
               <div className="w-4 h-4 rounded" style={{ backgroundColor: 'rgba(254, 215, 170, 0.6)' }}></div>
-              <span>Bike</span>
+              <span>Bike ({raceRecord.bike_start ? new Date(raceRecord.bike_start).toLocaleTimeString('ja-JP') : '未設定'})</span>
             </div>
             <div className="flex items-center gap-2">
               <div className="w-4 h-4 rounded" style={{ backgroundColor: 'rgba(187, 247, 208, 0.6)' }}></div>
-              <span>Run</span>
+              <span>Run ({raceRecord.run_start ? new Date(raceRecord.run_start).toLocaleTimeString('ja-JP') : '未設定'})</span>
             </div>
           </div>
         )}

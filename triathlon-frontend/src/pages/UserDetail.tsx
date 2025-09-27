@@ -275,6 +275,70 @@ export const UserDetail: React.FC = () => {
           )}
         </Card>
 
+        {/* グラフエリア */}
+        {viewMode === 'chart' && (
+          <Card className="p-6">
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-xl font-semibold text-gray-900">
+                {user?.full_name || user?.username || 'ユーザー'} のフィードバックデータ
+              </h2>
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-gray-500">大会:</span>
+                <select
+                  value={selectedCompetition}
+                  onChange={(e) => setSelectedCompetition(e.target.value)}
+                  className="px-3 py-1 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="">大会を選択</option>
+                  {competitions.map((comp) => (
+                    <option key={comp.id} value={comp.id}>
+                      {comp.name} ({new Date(comp.date).toLocaleDateString('ja-JP')})
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            {!selectedCompetition ? (
+              <div className="text-center py-12 text-gray-500">
+                <div className="mb-4">
+                  <svg className="h-16 w-16 text-gray-300 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                  </svg>
+                </div>
+                <h3 className="text-lg font-medium text-gray-900 mb-2">
+                  大会を選択してください
+                </h3>
+                <p className="text-sm">
+                  大会を選択すると、該当大会でのセンサーデータと競技区間が表示されます。
+                </p>
+              </div>
+            ) : competitions.length === 0 ? (
+              <div className="text-center py-12 text-gray-500">
+                <div className="mb-4">
+                  <svg className="h-16 w-16 text-gray-300 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                  </svg>
+                </div>
+                <h3 className="text-lg font-medium text-gray-900 mb-2">
+                  参加大会データがありません
+                </h3>
+                <p className="text-sm">
+                  このユーザーの大会参加データまたはセンサーデータが登録されていません。
+                </p>
+              </div>
+            ) : (
+              <TriathlonFeedbackChart
+                userId={userId}
+                competitions={competitions}
+                competitionId={selectedCompetition}
+                height={600}
+                isAdminView={true}  // 追加：管理者ビュー用
+              />
+            )}
+          </Card>
+        )}
+
         {/* デバッグ情報（開発用） */}
         {process.env.NODE_ENV === 'development' && (
           <Card className="p-6 bg-gray-50">
