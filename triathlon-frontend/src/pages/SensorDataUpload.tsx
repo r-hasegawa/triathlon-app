@@ -842,7 +842,7 @@ return (
                         ) : (
                           <div className="text-sm">
                             センサーID: {heartRateSensorId} | 
-                            心拍データ: {result.trackpoints_total}件
+                            成功: {result.success} / 失敗: {result.failed} / 合計: {result.total}
                           </div>
                         )}
                       </div>
