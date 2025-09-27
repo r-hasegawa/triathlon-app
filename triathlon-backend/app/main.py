@@ -9,7 +9,7 @@ import logging
 import os
 
 from .database import engine, Base
-from .routers import auth, user_data, competition, feedback
+from .routers import auth, user_data, feedback
 from .routers.admin import router as admin_router  # 管理者ルーターを正しくインポート
 
 # ログ設定
@@ -56,7 +56,6 @@ app.mount("/uploads", StaticFiles(directory=uploads_dir), name="uploads")
 app.include_router(auth.router, prefix="/auth", tags=["認証"])
 app.include_router(admin_router, tags=["管理者"])  # 管理者ルーター（/adminプレフィックス含む）
 app.include_router(user_data.router, tags=["ユーザーデータ"])  # /meプレフィックス含む
-app.include_router(competition.router, prefix="/competitions", tags=["大会"])
 app.include_router(feedback.router, tags=["フィードバック"])  # フィードバック機能
 
 # ヘルスチェックエンドポイント
@@ -71,25 +70,6 @@ async def health_check():
         "version": "1.0.0"
     }
 
-# ルートエンドポイント
-@app.get("/")
-async def root():
-    """
-    APIルート情報
-    """
-    return {
-        "message": "Triathlon Sensor Data Feedback System API",
-        "version": "1.0.0",
-        "docs": "/docs",
-        "health": "/health",
-        "available_endpoints": {
-            "auth": "/auth/*",
-            "admin": "/admin/*", 
-            "user_data": "/me/*",
-            "competitions": "/competitions/*",
-            "feedback": "/me/competitions, /me/feedback-data/*"
-        }
-    }
 
 # エラーハンドラー修正
 @app.exception_handler(StarletteHTTPException)
