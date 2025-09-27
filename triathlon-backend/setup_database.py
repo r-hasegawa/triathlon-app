@@ -91,7 +91,7 @@ def create_sample_competitions():
             {
                 "competition_id": "comp_2025_001",
                 "name": "第1回東京湾トライアスロン2025",
-                "date": date(2025, 6, 15),
+                "date": date(2025, 7, 27),
                 "location": "東京都江東区お台場海浜公園",
                 "description": "初夏の東京湾で開催される研究用トライアスロン大会"
             },

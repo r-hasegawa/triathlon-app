@@ -11,6 +11,7 @@ from .users import router as users_router
 from .competitions import router as competitions_router
 from .data_uploads import router as uploads_router
 from .mappings import router as mappings_router
+from .batches import router as batches_router
 
 # メインの管理者ルーター
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -21,3 +22,4 @@ router.include_router(users_router)
 router.include_router(competitions_router)
 router.include_router(uploads_router)
 router.include_router(mappings_router)
+router.include_router(batches_router)
