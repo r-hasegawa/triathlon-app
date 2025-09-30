@@ -356,20 +356,23 @@ def get_sensor_data(db: Session, user_id: str, competition_id: Optional[str] = N
         # WBGT データ（大会全体で共有）
         if competition_id:
             try:
+                # ⚠️ 修正: WBGTData.datetime を WBGTData.timestamp に変更
                 wbgt_data = db.query(WBGTData).filter(
                     WBGTData.competition_id == competition_id
-                ).order_by(WBGTData.datetime).all()
+                ).order_by(WBGTData.timestamp).all()  # ← datetime → timestamp
                 
                 logger.info(f"Found {len(wbgt_data)} WBGT records for competition {competition_id}")
                 
                 for data in wbgt_data:
-                    timestamp_key = data.datetime.isoformat()
+                    # ⚠️ 修正: data.datetime を data.timestamp に変更
+                    timestamp_key = data.timestamp.isoformat()  # ← datetime → timestamp
                     if timestamp_key not in grouped_data:
                         grouped_data[timestamp_key] = SensorDataPoint(
                             timestamp=timestamp_key,
                             sensor_id="wbgt_sensor"
                         )
-                    grouped_data[timestamp_key].wbgt_temperature = data.temperature
+                    # ⚠️ 修正: data.temperature を data.wbgt_value に変更
+                    grouped_data[timestamp_key].wbgt_temperature = data.wbgt_value  # ← temperature → wbgt_value
                     if not grouped_data[timestamp_key].data_type:
                         grouped_data[timestamp_key].data_type = "wbgt"
                         

@@ -285,7 +285,7 @@ export const TriathlonFeedbackChart: React.FC<TriathlonFeedbackChartProps> = ({
         .sort((a, b) => new Date(a.x).getTime() - new Date(b.x).getTime());
 
       datasets.push({
-        label: 'WBGT温度',
+        label: 'WBGT値',
         data: wbgtData,
         borderColor: 'rgb(245, 158, 11)',
         backgroundColor: 'rgba(245, 158, 11, 0.1)',
@@ -294,7 +294,7 @@ export const TriathlonFeedbackChart: React.FC<TriathlonFeedbackChartProps> = ({
         yAxisID: 'y',
         pointRadius: 0.5,
         pointHoverRadius: 5,
-        spanGaps: 5 * 60 * 1000,
+        spanGaps: 15 * 60 * 1000,
         fill: false,
       });
     }
