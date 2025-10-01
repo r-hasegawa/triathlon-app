@@ -1,4 +1,4 @@
-// triathlon-frontend/src/types/upload.ts
+// triathlon-frontend/src/types/upload.ts (修正版)
 
 export interface Competition {
   competition_id: string;
@@ -31,8 +31,8 @@ export interface UploadResult {
   status: string;
   error?: string;
   sensor_ids?: string[];
-  trackpoints_total?: number;  // TCX用
-  sensors_found?: number;      // カプセル温用
+  trackpoints_total?: number;
+  sensors_found?: number;
 }
 
 export interface SkinTemperatureData {
@@ -68,17 +68,16 @@ export interface HeartRateData {
   mapped_user_id?: string;
 }
 
+// 🆕 修正: 不要フィールド削除、upload_batch_id追加
 export interface SensorMapping {
   id: number;
   user_id: string;
   competition_id: string;
-  skin_temp_sensor_id?: string;
-  core_temp_sensor_id?: string;
-  heart_rate_sensor_id?: string;
-  race_record_id?: string;
-  uploaded_at: string;
-  upload_batch_id: string;
+  sensor_id: string;
+  sensor_type: string;
+  upload_batch_id?: string;  // 🆕 追加
+  created_at: string;
 }
 
-export type SensorType = 'skin_temperature' | 'core_temperature' | 'heart_rate';
+export type SensorType = 'skin_temperature' | 'core_temperature' | 'heart_rate' | 'wbgt' | 'other';
 export type UploadStatus = 'success' | 'failed' | 'partial';

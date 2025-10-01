@@ -141,7 +141,7 @@ class UploadBatch(Base):
 # === センサーマッピング ===
 
 class FlexibleSensorMapping(Base):
-    """センサーマッピング（シンプル版）"""
+    """センサーマッピング（シンプル版 - 不要列削除、upload_batch_id追加）"""
     __tablename__ = "mappings"
     
     id = Column(Integer, primary_key=True, index=True)
@@ -150,10 +150,8 @@ class FlexibleSensorMapping(Base):
     user_id = Column(String(50), ForeignKey("users.user_id"), nullable=False, index=True)
     competition_id = Column(String(50), ForeignKey("competitions.competition_id"), nullable=False, index=True)
     
-    # オプション情報
-    subject_name = Column(String(255), nullable=True)
-    device_type = Column(String(100), nullable=True)
-    notes = Column(Text, nullable=True)
+    # 🆕 アップロードバッチIDを追加（削除管理用）
+    upload_batch_id = Column(String(200), nullable=True, index=True)
     
     created_at = Column(DateTime, server_default=func.now())
     

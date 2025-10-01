@@ -39,21 +39,25 @@ async def upload_mapping_data(
     if not competition:
         raise HTTPException(status_code=400, detail=f"大会ID '{competition_id}' が見つかりません")
     
+    # 🆕 batch_idを先に生成
+    batch_id = f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{mapping_file.filename}"
+    
     csv_service = FlexibleCSVService()
     
     try:
         content = await mapping_file.read()
         await mapping_file.seek(0)
         
+        # 🆕 batch_idを渡す
         result = await csv_service.process_mapping_data(
             mapping_file=mapping_file,
             competition_id=competition_id,
             db=db,
+            batch_id=batch_id,  # 🆕 追加
             overwrite=overwrite
         )
         
-        batch_id = f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{mapping_file.filename}"
-        
+        # UploadBatchレコード作成
         batch = UploadBatch(
             batch_id=batch_id,
             sensor_type=SensorType.OTHER,

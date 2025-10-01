@@ -1,4 +1,5 @@
-# triathlon-backend/app/routers/admin/batches.py
+# app/routers/admin/batches.py (完全修正版)
+
 """
 管理者用バッチ管理エンドポイント
 """
@@ -13,7 +14,7 @@ from app.database import get_db
 from app.models.user import AdminUser
 from app.models.flexible_sensor_data import (
     UploadBatch, SkinTemperatureData, CoreTemperatureData, 
-    HeartRateData, WBGTData, SensorType
+    HeartRateData, WBGTData, FlexibleSensorMapping, SensorType
 )
 from app.utils.dependencies import get_current_admin
 
@@ -27,32 +28,18 @@ async def get_upload_batches(
     db: Session = Depends(get_db),
     current_admin: AdminUser = Depends(get_current_admin)
 ):
-    """
-    アップロードバッチ履歴取得
-    
-    Args:
-        competition_id: 大会IDでフィルタ（オプション）
-        sensor_type: センサータイプでフィルタ（オプション）
-        limit: 取得件数制限（デフォルト50）
-        
-    Returns:
-        バッチ履歴のリスト
-    """
+    """アップロードバッチ履歴取得"""
     try:
-        # クエリ構築
         query = db.query(UploadBatch).order_by(desc(UploadBatch.uploaded_at))
         
-        # フィルタ適用
         if competition_id:
             query = query.filter(UploadBatch.competition_id == competition_id)
             
         if sensor_type:
             query = query.filter(UploadBatch.sensor_type == sensor_type)
         
-        # 件数制限
         batches = query.limit(limit).all()
         
-        # レスポンス用データ作成
         batch_list = []
         for batch in batches:
             batch_data = {
@@ -83,21 +70,15 @@ async def get_upload_batches(
             detail=f"バッチ履歴取得エラー: {str(e)}"
         )
 
+
 @router.delete("/batches/{batch_id}")
 async def delete_upload_batch(
     batch_id: str,
     db: Session = Depends(get_db),
     current_admin: AdminUser = Depends(get_current_admin)
 ):
-    """
-    バッチ単位でアップロードデータを削除
+    """バッチ単位でアップロードデータを削除（マッピング対応版）"""
     
-    Args:
-        batch_id: 削除対象のバッチID
-        
-    Returns:
-        削除結果
-    """
     try:
         # バッチ存在確認
         batch = db.query(UploadBatch).filter_by(batch_id=batch_id).first()
@@ -138,6 +119,14 @@ async def delete_upload_batch(
                 .filter_by(upload_batch_id=batch_id).delete()
             deleted_counts["wbgt_data"] = count
         
+        # 🆕 マッピングデータの削除処理を追加
+        elif batch.sensor_type == SensorType.OTHER:
+            count = db.query(FlexibleSensorMapping)\
+                .filter_by(upload_batch_id=batch_id).count()
+            db.query(FlexibleSensorMapping)\
+                .filter_by(upload_batch_id=batch_id).delete()
+            deleted_counts["mapping_data"] = count
+        
         # バッチレコード自体も削除
         db.delete(batch)
         db.commit()
@@ -161,55 +150,4 @@ async def delete_upload_batch(
         raise HTTPException(
             status_code=500,
             detail=f"バッチ削除エラー: {str(e)}"
-        )
-
-@router.get("/batches/summary")
-async def get_batches_summary(
-    competition_id: Optional[str] = Query(None),
-    db: Session = Depends(get_db),
-    current_admin: AdminUser = Depends(get_current_admin)
-):
-    """
-    バッチ統計サマリー取得
-    
-    Args:
-        competition_id: 大会IDでフィルタ（オプション）
-        
-    Returns:
-        センサータイプ別の統計情報
-    """
-    try:
-        query = db.query(UploadBatch)
-        
-        if competition_id:
-            query = query.filter(UploadBatch.competition_id == competition_id)
-        
-        batches = query.all()
-        
-        # センサータイプ別集計
-        summary = {}
-        for sensor_type in SensorType:
-            type_batches = [b for b in batches if b.sensor_type == sensor_type]
-            
-            summary[sensor_type.value] = {
-                "batch_count": len(type_batches),
-                "total_records": sum(b.total_records or 0 for b in type_batches),
-                "success_records": sum(b.success_records or 0 for b in type_batches),
-                "failed_records": sum(b.failed_records or 0 for b in type_batches),
-                "last_upload": max(
-                    (b.uploaded_at for b in type_batches if b.uploaded_at), 
-                    default=None
-                ).isoformat() if type_batches else None
-            }
-        
-        return {
-            "summary": summary,
-            "competition_id": competition_id,
-            "total_batches": len(batches)
-        }
-        
-    except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"バッチサマリー取得エラー: {str(e)}"
         )

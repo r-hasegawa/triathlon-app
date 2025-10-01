@@ -64,15 +64,14 @@ class HeartRateResponse(BaseModel):
         from_attributes = True
 
 class SensorMappingResponse(BaseModel):
+    """マッピングレスポンス（不要フィールド削除、upload_batch_id追加）"""
     id: int
     user_id: str
     competition_id: str
-    skin_temp_sensor_id: Optional[str] = None
-    core_temp_sensor_id: Optional[str] = None
-    heart_rate_sensor_id: Optional[str] = None
-    race_record_id: Optional[str] = None
-    uploaded_at: datetime
-    upload_batch_id: str
+    sensor_id: str
+    sensor_type: str
+    upload_batch_id: Optional[str] = None  # 🆕 追加
+    created_at: datetime
     
     class Config:
         from_attributes = True
@@ -111,10 +110,11 @@ class DataSummaryResponse(BaseModel):
     competitions_with_data: List[str]
 
 class MappingStatusResponse(BaseModel):
+    """マッピング状態サマリー"""
     total_users: int
     mapped_users: int
     unmapped_sensors: int
-    mapping_coverage: float  # パーセンテージ
+    mapping_coverage: float
 
 # === エラーレポート用スキーマ ===
 
@@ -137,9 +137,14 @@ class UploadResponse(BaseModel):
     processed_records: int
 
 class MappingResponse(BaseModel):
+    """マッピングアップロード結果"""
     success: bool
     message: str
-    mapped_sensors: int
+    total_records: int
+    processed_records: int
+    skipped_records: int = 0
+    errors: list = []
+    batch_id: Optional[str] = None  # 🆕 追加
 
 class DataSummaryResponse(BaseModel):
     total_records: int
