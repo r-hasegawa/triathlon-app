@@ -120,7 +120,7 @@ class FlexibleCSVService:
         batch_id: str,
         filename: str
     ) -> dict:
-        """大会記録データ処理（競技日付自動結合版）"""
+        """大会記録データ処理（upload_batch_id対応版）"""
         try:
             # 競技情報取得
             from app.models.competition import Competition
@@ -138,20 +138,18 @@ class FlexibleCSVService:
                 return {
                     "filename": filename,
                     "status": "error",
-                    "message": "競技日付が設定されていません。先に大会管理で日付を設定してください"
+                    "message": "競技日付が設定されていません"
                 }
             
             print(f"競技日付: {competition_date}")
             
             # CSV読み込み
             df = pd.read_csv(io.StringIO(csv_string))
-            
-            # 列名の正規化
             df.columns = df.columns.str.strip()
             
             # ゼッケン番号列の確認
             race_number_col = None
-            for col in ['No.', 'No', 'race_number', 'bib_number', 'ゼッケン']:
+            for col in ['No.', 'NO.', 'no.', 'No', 'race_number', 'bib_number', 'ゼッケン']:
                 if col in df.columns:
                     race_number_col = col
                     break
@@ -160,46 +158,41 @@ class FlexibleCSVService:
                 return {
                     "filename": filename,
                     "status": "error",
-                    "message": "ゼッケン番号列（No.等）が見つかりません"
+                    "message": f"ゼッケン番号列が見つかりません。列: {list(df.columns)}"
                 }
+            
+            # 時刻列のマッピング定義（柔軟なマッチング）
+            time_field_mapping = {
+                'swim_start_time': ['SWIM-START', 'START', 'SWIM_START', 'Swim Start', 'swim_start'],
+                'swim_finish_time': ['SWIM-FINISH', 'SF', 'SWIM_FINISH', 'Swim Finish', 'swim_finish'],
+                'bike_start_time': ['BIKE-START', 'BS', 'BIKE_START', 'Bike Start', 'bike_start'], 
+                'bike_finish_time': ['BIKE-FINISH', 'BF', 'BIKE_FINISH', 'Bike Finish', 'bike_finish'],
+                'run_start_time': ['RUN-START', 'RS', 'RUN_START', 'Run Start', 'run_start'],
+                'run_finish_time': ['RUN-FINISH', 'RF', 'RUN_FINISH', 'Run Finish', 'run_finish']
+            }
+            
+            # LAP列の検出
+            lap_columns = [col for col in df.columns if any(prefix in col.upper() for prefix in ['BL', 'RL', 'LAP'])]
+            print(f"検出されたLAP列: {lap_columns}")
             
             processed = 0
             errors = []
-            
-            # 時刻列のマッピング定義
-            time_field_mapping = {
-                'swim_start_time': ['START', 'SWIM_START', 'Swim Start', 'swim_start'],
-                'swim_finish_time': ['SF', 'SWIM_FINISH', 'Swim Finish', 'swim_finish'],
-                'bike_start_time': ['BS', 'BIKE_START', 'Bike Start', 'bike_start'], 
-                'bike_finish_time': ['BF', 'BIKE_FINISH', 'Bike Finish', 'bike_finish'],
-                'run_start_time': ['RS', 'RUN_START', 'Run Start', 'run_start'],
-                'run_finish_time': ['RF', 'RUN_FINISH', 'Run Finish', 'run_finish']
-            }
-            
-            # LAP列の検出（動的）
-            lap_columns = {}
-            for col in df.columns:
-                col_upper = col.upper()
-                if any(prefix in col_upper for prefix in ['BL', 'RL', 'LAP']):
-                    lap_columns[col] = col
-            
-            print(f"検出されたLAP列: {list(lap_columns.keys())}")
             
             for index, row in df.iterrows():
                 try:
                     race_number = str(row.get(race_number_col, '')).strip()
                     
-                    if not race_number:
-                        errors.append(f"行{index+1}: ゼッケン番号が空です")
+                    if not race_number or race_number.lower() in ['nan', '', 'none']:
                         continue
                     
-                    # RaceRecord作成用データ
+                    # 基本データ構築
                     race_record_data = {
                         'competition_id': competition_id,
-                        'race_number': race_number
+                        'race_number': race_number,
+                        'upload_batch_id': batch_id  # 🆕 upload_batch_id追加
                     }
                     
-                    # 各競技の時刻データを処理（競技日付と自動結合）
+                    # 各競技の時刻データを処理
                     for field_name, possible_columns in time_field_mapping.items():
                         time_value = None
                         
@@ -211,7 +204,7 @@ class FlexibleCSVService:
                                     break
                         
                         # 時刻データがある場合、競技日付と結合
-                        if time_value:
+                        if time_value and pd.notna(time_value):
                             combined_datetime = self._parse_time_with_competition_date(
                                 time_value, competition_date
                             )
@@ -234,18 +227,15 @@ class FlexibleCSVService:
                     from app.models.competition import RaceRecord
                     race_record = RaceRecord(**race_record_data)
                     
-                    # LAP データ設定（JSONとして保存）
+                    # LAP データ設定
                     if lap_data:
                         import json
                         race_record.lap_data = json.dumps(lap_data)
                     
-                    # 合計時間計算
-                    race_record.calculate_total_times()
-                    
                     self.db.add(race_record)
                     processed += 1
                     
-                    print(f"保存成功: ゼッケン{race_number} ({processed}件目)")
+                    print(f"保存成功: ゼッケン{race_number} - 時刻データ: {len([k for k, v in race_record_data.items() if 'time' in k and v])}件")
                     
                 except Exception as e:
                     error_msg = f"行{index+1}: {str(e)}"
@@ -262,7 +252,7 @@ class FlexibleCSVService:
                 "message": f"処理完了: {processed}件保存, {len(errors)}件エラー",
                 "processed_records": processed,
                 "error_records": len(errors),
-                "errors": errors[:10],  # 最初の10件のエラーのみ表示
+                "errors": errors[:10],
                 "competition_date_used": competition_date.isoformat()
             }
             
@@ -1225,35 +1215,22 @@ class FlexibleCSVService:
         self,
         race_files: List[UploadFile],
         competition_id: str,
-        db: Session
+        db: Session,
+        batch_id: str  # 🆕 batch_idパラメータを追加
     ) -> dict:
-        """
-        大会記録データ処理（競技日付自動結合版）
-        複数CSVファイル対応
-        """
+        """大会記録データ処理（複数CSVファイル対応、batch_id追加版）"""
+        
         try:
-            # 必要なインポート
-            from app.models.competition import Competition, RaceRecord
+            # 大会存在チェック
+            from app.models.competition import Competition
             from app.models.user import AdminUser
-            from app.models.flexible_sensor_data import UploadBatch, SensorType, UploadStatus
             
-            # 競技情報取得と日付チェック
             competition = db.query(Competition).filter_by(competition_id=competition_id).first()
             if not competition:
                 raise HTTPException(status_code=400, detail=f"大会ID '{competition_id}' が見つかりません")
             
-            if not competition.date:
-                raise HTTPException(
-                    status_code=400, 
-                    detail="競技日付が未設定です。大会管理画面で先に日付を設定してください"
-                )
-            
             competition_date = competition.date
             print(f"使用する競技日付: {competition_date}")
-            
-            # バッチID生成
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            batch_id = f"{timestamp}_race_records_{len(race_files)}files"
             
             # 処理統計
             total_files_processed = 0
@@ -1288,11 +1265,11 @@ class FlexibleCSVService:
                         all_errors.append(f"{file.filename}: 文字コード認識失敗")
                         continue
                     
-                    # CSVファイル単位で処理
+                    # CSVファイル単位で処理（batch_idを渡す）
                     result = self.process_race_record_csv(
                         csv_string=csv_string,
                         competition_id=competition_id,
-                        batch_id=batch_id,
+                        batch_id=batch_id,  # 🆕 batch_idを渡す
                         filename=file.filename
                     )
                     
@@ -1312,45 +1289,25 @@ class FlexibleCSVService:
                     all_errors.append(f"{file.filename}: 予期しないエラー - {str(e)}")
                     print(f"ファイル処理エラー: {e}")
             
-            # バッチ記録作成
-            admin_user = db.query(AdminUser).first()
-            admin_id = admin_user.admin_id if admin_user else "system"
-            
-            batch = UploadBatch(
-                batch_id=batch_id,
-                sensor_type=SensorType.OTHER,
-                competition_id=competition_id,
-                file_name=f"race_records_{len(race_files)}files.csv",
-                total_records=total_csv_records,
-                success_records=saved_count,
-                failed_records=failed_count,
-                status=UploadStatus.SUCCESS if failed_count == 0 else UploadStatus.PARTIAL
-            )
-            db.add(batch)
-            db.commit()
-            
-            # 結果サマリー作成
-            success_rate = (saved_count / (saved_count + failed_count) * 100) if (saved_count + failed_count) > 0 else 0
-            
-            message = f"大会記録処理完了: {total_files_processed}ファイル処理, {saved_count}件保存, {failed_count}件失敗 (成功率: {success_rate:.1f}%)"
-            if competition_date:
-                message += f" | 競技日付: {competition_date.strftime('%Y/%m/%d')} を自動適用"
+            # 最終結果
+            success = saved_count > 0
             
             return {
-                "success": saved_count > 0,
-                "message": message,
-                "batch_id": batch_id,
-                "competition_date_used": competition_date.isoformat(),
-                "files_processed": total_files_processed,
-                "total_records_saved": saved_count,
-                "total_records_failed": failed_count,
-                "success_rate_percent": success_rate,
-                "errors": all_errors[:20]  # 最初の20件のエラーのみ表示
+                "success": success,
+                "message": f"大会記録アップロード完了: {saved_count}件保存, {failed_count}件エラー",
+                "total_files": len(race_files),
+                "processed_files": total_files_processed,
+                "saved_count": saved_count,
+                "failed_count": failed_count,
+                "total_csv_records": saved_count + failed_count,
+                "errors": all_errors[:20]  # 最大20件のエラー
             }
             
+        except HTTPException:
+            raise
         except Exception as e:
             db.rollback()
-            raise HTTPException(status_code=500, detail=f"大会記録処理失敗: {str(e)}")
+            raise HTTPException(status_code=500, detail=f"大会記録処理エラー: {str(e)}")
 
     def _is_likely_time_data(self, time_str: str) -> bool:
         """文字列が時刻データの可能性が高いかチェック"""

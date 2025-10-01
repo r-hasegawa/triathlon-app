@@ -109,10 +109,8 @@ export const SensorDataUpload: React.FC = () => {
   useEffect(() => {
     if (selectedCompetition) {
       loadMappingStatus();
-      loadRaceRecordStatus();
     } else {
       setMappingStatus(null);
-      setRaceRecordStatus(null);
     }
   }, [selectedCompetition]);
 
@@ -514,28 +512,6 @@ export const SensorDataUpload: React.FC = () => {
     setRaceRecordResults([]);
   };
 
-  const loadRaceRecordStatus = async () => {
-    if (!selectedCompetition) return;
-    
-    try {
-      const token = localStorage.getItem('access_token'); // 修正: 'token' -> 'access_token'
-      const response = await fetch(`http://localhost:8000/admin/race-records/status?competition_id=${selectedCompetition}`, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-        },
-      });
-      
-      if (response.ok) {
-        const data = await response.json();
-        setRaceRecordStatus(data);
-      } else {
-        console.error('Failed to load race record status:', response.status, response.statusText);
-      }
-    } catch (error) {
-      console.error('Race record status load error:', error);
-    }
-  };
-
   const handleRaceRecordUpload = async () => {
     if (!raceRecordFiles || raceRecordFiles.length === 0) {
       alert('CSVファイルを選択してください');
@@ -580,7 +556,6 @@ export const SensorDataUpload: React.FC = () => {
           status: result.success ? 'success' : 'failed'
         }]);
         
-        await loadRaceRecordStatus();
         await loadUploadBatches();
         resetRaceRecordFiles();
       } else {

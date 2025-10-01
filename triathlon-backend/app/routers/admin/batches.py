@@ -126,6 +126,15 @@ async def delete_upload_batch(
             db.query(FlexibleSensorMapping)\
                 .filter_by(upload_batch_id=batch_id).delete()
             deleted_counts["mapping_data"] = count
+
+        # 🆕 大会記録データの削除処理を追加
+        elif batch.sensor_type == SensorType.RACE_RECORD:
+            from app.models.competition import RaceRecord
+            count = db.query(RaceRecord)\
+                .filter_by(upload_batch_id=batch_id).count()
+            db.query(RaceRecord)\
+                .filter_by(upload_batch_id=batch_id).delete()
+            deleted_counts["race_record_data"] = count
         
         # バッチレコード自体も削除
         db.delete(batch)
