@@ -348,7 +348,7 @@ async def get_user_data_summary(
     db: Session = Depends(get_db),
     current_admin: AdminUser = Depends(get_current_admin)
 ):
-    """ユーザーのデータサマリー取得（実際のスキーマに基づく修正版）"""
+    """ユーザーのデータサマリー取得（RaceRecord修正版）"""
     
     # ユーザー存在チェック
     user = db.query(User).filter_by(user_id=user_id).first()
@@ -366,8 +366,14 @@ async def get_user_data_summary(
         # マッピング情報
         mappings = db.query(FlexibleSensorMapping).filter_by(user_id=user_id).all()
         
-        # 大会参加情報
-        race_records = db.query(RaceRecord).filter_by(user_id=user_id).all()
+        # 🔧 修正: RaceRecordから大会参加情報を取得（user_idではなくマッピング経由）
+        # RaceRecordテーブルには user_id カラムが存在しないため、
+        # マッピングテーブルから competition_id を取得して参加大会数を数える
+        participated_competitions = db.query(
+            FlexibleSensorMapping.competition_id
+        ).filter_by(
+            user_id=user_id
+        ).distinct().count()
         
         return {
             "user_info": {
@@ -378,7 +384,7 @@ async def get_user_data_summary(
             "sensor_data_summary": sensor_data,
             "total_sensor_records": sum(sensor_data.values()),
             "mappings_count": len(mappings),
-            "competitions_participated": len(race_records)
+            "competitions_participated": participated_competitions
         }
         
     except Exception as e:

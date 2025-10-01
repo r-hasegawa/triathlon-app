@@ -609,27 +609,30 @@ class FlexibleCSVService:
             
             # 既存マッピング削除（overwriteが有効な場合）
             if overwrite:
-                # 1. 既存マッピングを取得して、batch_idを収集
+                # 🆕 該当する既存マッピングに紐づくupload_batch_idを取得
                 existing_mappings = db.query(FlexibleSensorMapping).filter_by(
                     competition_id=competition_id
                 ).all()
                 
-                existing_batch_ids = set()  # 重複を避けるためsetを使用
+                existing_batch_ids = set()
                 for mapping in existing_mappings:
                     if mapping.upload_batch_id:
                         existing_batch_ids.add(mapping.upload_batch_id)
                 
-                # 2. マッピングデータを削除
+                # マッピングデータを削除
                 existing_count = db.query(FlexibleSensorMapping).filter_by(
                     competition_id=competition_id
                 ).delete()
+                print(f"既存マッピング削除: {existing_count}件")
                 
-                # 3. 対応するUploadBatchレコードも削除
+                # 🆕 対応するUploadBatchレコードも削除
                 if existing_batch_ids:
+                    from app.models.flexible_sensor_data import UploadBatch
                     deleted_batch_count = db.query(UploadBatch).filter(
                         UploadBatch.batch_id.in_(existing_batch_ids),
                         UploadBatch.sensor_type == SensorType.OTHER
                     ).delete(synchronize_session=False)
+                    print(f"既存マッピングバッチ削除: {deleted_batch_count}件")
                 
                 db.commit()
             
@@ -673,7 +676,9 @@ class FlexibleCSVService:
                 'core_temp_sensor_id': SensorType.CORE_TEMPERATURE,
                 'heart_rate_sensor_id': SensorType.HEART_RATE,
                 'skin_temperature_sensor_id': SensorType.SKIN_TEMPERATURE,
-                'core_temperature_sensor_id': SensorType.CORE_TEMPERATURE
+                'core_temperature_sensor_id': SensorType.CORE_TEMPERATURE,
+                'race_record_id': SensorType.RACE_RECORD,  # 🆕 追加
+                'race_number': SensorType.RACE_RECORD       # 🆕 追加（別名対応）
             }
             
             processed = 0

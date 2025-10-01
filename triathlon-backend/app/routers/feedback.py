@@ -97,7 +97,7 @@ async def get_user_feedback_data(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """指定された大会のフィードバックデータを取得"""
+    """指定された大会のフィードバックデータを取得（エラーハンドリング強化版）"""
     try:
         logger.info(f"Getting feedback data for user: {current_user.user_id}, competition: {competition_id}")
         
@@ -111,12 +111,20 @@ async def get_user_feedback_data(
             raise HTTPException(status_code=404, detail="指定された大会が見つかりません")
         
         # センサーデータを取得
-        sensor_data = get_sensor_data(db, current_user.user_id, competition_id)
-        logger.info(f"Retrieved {len(sensor_data)} sensor data points")
+        try:
+            sensor_data = get_sensor_data(db, current_user.user_id, competition_id)
+            logger.info(f"Retrieved {len(sensor_data)} sensor data points")
+        except Exception as sensor_error:
+            logger.error(f"Error retrieving sensor data: {sensor_error}")
+            sensor_data = []  # エラーが発生しても空のリストを返す
         
         # 大会記録を取得
-        race_record = get_race_record(db, current_user.user_id, competition_id)
-        logger.info(f"Race record found: {race_record is not None}")
+        try:
+            race_record = get_race_record(db, current_user.user_id, competition_id)
+            logger.info(f"Race record found: {race_record is not None}")
+        except Exception as race_error:
+            logger.error(f"Error retrieving race record: {race_error}")
+            race_record = None  # エラーが発生してもNoneを返す
         
         return FeedbackDataResponse(
             sensor_data=sensor_data,
@@ -124,8 +132,8 @@ async def get_user_feedback_data(
             competition=CompetitionRace(
                 id=competition.competition_id,
                 name=competition.name,
-                date=competition.date.isoformat(),
-                description=competition.description
+                date=competition.date.isoformat() if competition.date else datetime.now().isoformat(),
+                description=getattr(competition, 'description', None)
             ),
             statistics={
                 "total_records": len(sensor_data),
@@ -137,7 +145,10 @@ async def get_user_feedback_data(
         raise
     except Exception as e:
         logger.error(f"Error fetching feedback data: {e}")
-        raise HTTPException(status_code=500, detail="フィードバックデータの取得に失敗しました")
+        logger.error(f"Error type: {type(e).__name__}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail=f"フィードバックデータの取得に失敗しました: {str(e)}")
 
 
 @router.get("/me/sensor-data", response_model=List[SensorDataPoint])
