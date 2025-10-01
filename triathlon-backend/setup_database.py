@@ -93,21 +93,18 @@ def create_sample_competitions():
                 "name": "第1回東京湾トライアスロン2025",
                 "date": date(2025, 7, 27),
                 "location": "東京都江東区お台場海浜公園",
-                "description": "初夏の東京湾で開催される研究用トライアスロン大会"
             },
             {
                 "competition_id": "comp_2025_002", 
                 "name": "真夏の湘南オープンウォータートライアスロン",
                 "date": date(2025, 8, 10),
                 "location": "神奈川県藤沢市湘南海岸",
-                "description": "高温環境下での生理学的応答を調査する真夏の大会"
             },
             {
                 "competition_id": "comp_2025_003",
                 "name": "秋季アイアンマン研究大会",
                 "date": date(2025, 10, 5),
                 "location": "千葉県館山市",
-                "description": "長距離耐久競技における生体反応の詳細解析"
             }
         ]
         

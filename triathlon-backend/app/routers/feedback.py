@@ -69,7 +69,7 @@ async def get_user_competitions(
             Competition.competition_id == FlexibleSensorMapping.competition_id
         ).filter(
             FlexibleSensorMapping.user_id == current_user.user_id
-        ).distinct().order_by(Competition.created_at.desc()).all()
+        ).distinct().order_by(Competition.date.desc()).all()
         
         logger.info(f"Found {len(competitions)} competitions for user {current_user.user_id}")
         
@@ -77,8 +77,7 @@ async def get_user_competitions(
             CompetitionRace(
                 id=comp.competition_id,
                 name=comp.name,
-                date=comp.created_at.isoformat(),
-                description=comp.description
+                date=comp.date.isoformat(),
             )
             for comp in competitions
         ]
@@ -125,7 +124,7 @@ async def get_user_feedback_data(
             competition=CompetitionRace(
                 id=competition.competition_id,
                 name=competition.name,
-                date=competition.created_at.isoformat(),
+                date=competition.date.isoformat(),
                 description=competition.description
             ),
             statistics={
@@ -173,14 +172,13 @@ async def get_admin_user_competitions(
             Competition.competition_id == FlexibleSensorMapping.competition_id
         ).filter(
             FlexibleSensorMapping.user_id == user_id
-        ).distinct().order_by(Competition.created_at.desc()).all()
+        ).distinct().order_by(Competition.date.desc()).all()
         
         return [
             CompetitionRace(
                 id=comp.competition_id,
                 name=comp.name,
-                date=comp.created_at.isoformat(),
-                description=comp.description
+                date=comp.date.isoformat(),
             )
             for comp in competitions
         ]
@@ -221,8 +219,7 @@ async def get_admin_user_feedback_data(
             competition=CompetitionRace(
                 id=competition.competition_id,
                 name=competition.name,
-                date=competition.created_at.isoformat(),
-                description=competition.description
+                date=competition.date.isoformat(),
             ),
             statistics={
                 "total_records": len(sensor_data),

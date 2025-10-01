@@ -67,8 +67,7 @@ async def create_competition(
             competition_id=competition_id,
             name=competition_data.name,
             date=competition_date,
-            location=competition_data.location,
-            description=competition_data.description
+            location=competition_data.location
         )
         
         db.add(competition)
@@ -81,8 +80,7 @@ async def create_competition(
                 "competition_id": competition.competition_id,
                 "name": competition.name,
                 "date": competition.date.isoformat() if competition.date else None,
-                "location": competition.location,
-                "description": competition.description
+                "location": competition.location
             }
         }
         
@@ -104,10 +102,9 @@ async def list_competitions(
     
     query = db.query(Competition)
     
-    # 並び替え：日付の新しい順（日付がない場合は作成日時順）
+    # 並び替え：日付の新しい順
     competitions = query.order_by(
         desc(Competition.date),
-        desc(Competition.created_at)
     ).all()
     
     return {
@@ -116,110 +113,11 @@ async def list_competitions(
                 "competition_id": comp.competition_id,
                 "name": comp.name,
                 "date": comp.date.isoformat() if comp.date else None,
-                "location": comp.location,
-                "description": comp.description,
-                "created_at": comp.created_at.isoformat()
+                "location": comp.location
             }
             for comp in competitions
         ]
     }
-
-
-@router.get("/competitions/{competition_id}")
-async def get_competition(
-    competition_id: str,
-    db: Session = Depends(get_db),
-    current_admin: AdminUser = Depends(get_current_admin)
-):
-    """大会詳細取得"""
-    
-    competition = db.query(Competition).filter_by(competition_id=competition_id).first()
-    if not competition:
-        raise HTTPException(
-            status_code=404,
-            detail="大会が見つかりません"
-        )
-    
-    # 関連データ数取得
-    race_records_count = db.query(RaceRecord).filter_by(competition_id=competition_id).count()
-    wbgt_count = db.query(WBGTData).filter_by(competition_id=competition_id).count()
-    mapping_count = db.query(FlexibleSensorMapping).filter_by(competition_id=competition_id).count()
-    
-    return {
-        "competition": {
-            "competition_id": competition.competition_id,
-            "name": competition.name,
-            "date": competition.date.isoformat() if competition.date else None,
-            "location": competition.location,
-            "description": competition.description,
-            "created_at": competition.created_at.isoformat()
-        },
-        "stats": {
-            "race_records": race_records_count,
-            "wbgt_data": wbgt_count,
-            "mappings": mapping_count
-        }
-    }
-
-
-@router.put("/competitions/{competition_id}")
-async def update_competition(
-    competition_id: str,
-    competition_data: CompetitionCreate = Body(...),
-    db: Session = Depends(get_db),
-    current_admin: AdminUser = Depends(get_current_admin)
-):
-    """大会情報更新"""
-    
-    competition = db.query(Competition).filter_by(competition_id=competition_id).first()
-    if not competition:
-        raise HTTPException(
-            status_code=404,
-            detail="大会が見つかりません"
-        )
-    
-    try:
-        competition.name = competition_data.name
-        
-        if competition_data.date:
-            try:
-                competition.date = datetime.strptime(competition_data.date, "%Y-%m-%d").date()
-            except ValueError:
-                raise HTTPException(
-                    status_code=400,
-                    detail="日付は YYYY-MM-DD 形式で入力してください"
-                )
-        
-        if competition_data.location is not None:
-            competition.location = competition_data.location
-        
-        if competition_data.description is not None:
-            competition.description = competition_data.description
-        
-        # updated_atが存在する場合は更新
-        if hasattr(competition, 'updated_at'):
-            competition.updated_at = datetime.utcnow()
-        
-        db.commit()
-        db.refresh(competition)
-        
-        return {
-            "message": f"大会 '{competition.name}' を更新しました",
-            "competition": {
-                "competition_id": competition.competition_id,
-                "name": competition.name,
-                "date": competition.date.isoformat() if competition.date else None,
-                "location": competition.location,
-                "description": competition.description
-            }
-        }
-        
-    except Exception as e:
-        db.rollback()
-        raise HTTPException(
-            status_code=500,
-            detail=f"大会更新エラー: {str(e)}"
-        )
 
 
 @router.delete("/competitions/{competition_id}")

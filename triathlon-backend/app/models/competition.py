@@ -19,8 +19,8 @@ class Competition(Base):
     name = Column(String(200), nullable=False)
     date = Column(Date, nullable=True)
     location = Column(String(200), nullable=True)
-    description = Column(Text, nullable=True)
-    created_at = Column(DateTime, server_default=func.now())
+    # description = Column(Text, nullable=True)
+    # created_at = Column(DateTime, server_default=func.now())
     
     def __init__(self, **kwargs):
         if 'competition_id' not in kwargs:
