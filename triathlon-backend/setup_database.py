@@ -32,7 +32,7 @@ def create_tables():
     print("   - core_temperature_data (e-Celcius対応)")
     print("   - heart_rate_data (TCX対応)")
     print("   - wbgt_data (環境データ)")
-    print("   - flexible_sensor_mappings (マッピング)")
+    print("   - mappings (マッピング)")
     print("   - upload_batches (バッチ管理)")
 
 def create_initial_users():

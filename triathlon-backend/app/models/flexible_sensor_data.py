@@ -142,7 +142,7 @@ class UploadBatch(Base):
 
 class FlexibleSensorMapping(Base):
     """センサーマッピング（シンプル版）"""
-    __tablename__ = "flexible_sensor_mappings"
+    __tablename__ = "mappings"
     
     id = Column(Integer, primary_key=True, index=True)
     sensor_id = Column(String(100), nullable=False, index=True)
