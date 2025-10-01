@@ -1,13 +1,14 @@
 """
 app/routers/admin/competitions.py
-大会管理機能
+大会管理機能（JSONボディ対応版）
 """
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Body
 from sqlalchemy.orm import Session
 from sqlalchemy import desc, func
-from typing import List
+from typing import List, Optional
 from datetime import datetime
+from pydantic import BaseModel
 
 from app.database import get_db
 from app.models.user import AdminUser
@@ -21,23 +22,28 @@ from app.utils.dependencies import get_current_admin
 router = APIRouter()
 
 
+# 🆕 Pydanticスキーマを追加
+class CompetitionCreate(BaseModel):
+    name: str
+    date: Optional[str] = None
+    location: Optional[str] = None
+    description: Optional[str] = None
+
+
 @router.post("/competitions")
 async def create_competition(
-    name: str,
-    date: str = None,
-    location: str = None,
-    description: str = None,
+    competition_data: CompetitionCreate = Body(...),
     db: Session = Depends(get_db),
     current_admin: AdminUser = Depends(get_current_admin)
 ):
-    """新規大会作成（仕様書1.2対応）"""
+    """新規大会作成（仕様書1.2対応・JSONボディ版）"""
     
     # 大会名重複チェック
-    existing_competition = db.query(Competition).filter_by(name=name).first()
+    existing_competition = db.query(Competition).filter_by(name=competition_data.name).first()
     if existing_competition:
         raise HTTPException(
             status_code=400,
-            detail=f"大会名 '{name}' は既に存在します"
+            detail=f"大会名 '{competition_data.name}' は既に存在します"
         )
     
     try:
@@ -47,9 +53,9 @@ async def create_competition(
         
         # 日付の変換
         competition_date = None
-        if date:
+        if competition_data.date:
             try:
-                competition_date = datetime.strptime(date, "%Y-%m-%d").date()
+                competition_date = datetime.strptime(competition_data.date, "%Y-%m-%d").date()
             except ValueError:
                 raise HTTPException(
                     status_code=400,
@@ -59,10 +65,10 @@ async def create_competition(
         # 大会作成
         competition = Competition(
             competition_id=competition_id,
-            name=name,
+            name=competition_data.name,
             date=competition_date,
-            location=location,
-            description=description
+            location=competition_data.location,
+            description=competition_data.description
         )
         
         db.add(competition)
@@ -70,14 +76,13 @@ async def create_competition(
         db.refresh(competition)
         
         return {
-            "message": f"大会 '{name}' を作成しました",
+            "message": f"大会 '{competition_data.name}' を作成しました",
             "competition": {
                 "competition_id": competition.competition_id,
                 "name": competition.name,
                 "date": competition.date.isoformat() if competition.date else None,
                 "location": competition.location,
-                "description": competition.description,
-                "created_at": competition.created_at.isoformat() if competition.created_at else None
+                "description": competition.description
             }
         }
         
@@ -91,63 +96,37 @@ async def create_competition(
 
 @router.get("/competitions")
 async def list_competitions(
-    include_stats: bool = True,
+    include_inactive: bool = False,
     db: Session = Depends(get_db),
     current_admin: AdminUser = Depends(get_current_admin)
 ):
-    """大会一覧取得（管理者用）"""
-    try:
-        competitions = db.query(Competition).order_by(desc(Competition.date)).all()
-        
-        competition_list = []
-        for comp in competitions:
-            comp_data = {
+    """大会一覧取得（仕様書4.3対応）"""
+    
+    query = db.query(Competition)
+    
+    # 並び替え：日付の新しい順（日付がない場合は作成日時順）
+    competitions = query.order_by(
+        desc(Competition.date),
+        desc(Competition.created_at)
+    ).all()
+    
+    return {
+        "competitions": [
+            {
                 "competition_id": comp.competition_id,
                 "name": comp.name,
                 "date": comp.date.isoformat() if comp.date else None,
                 "location": comp.location,
                 "description": comp.description,
-                "created_at": comp.created_at.isoformat() if comp.created_at else None
+                "created_at": comp.created_at.isoformat()
             }
-            
-            if include_stats:
-                # 参加者数
-                participant_count = db.query(RaceRecord).filter_by(
-                    competition_id=comp.competition_id
-                ).count()
-                
-                # 関連データ数
-                wbgt_count = db.query(WBGTData).filter_by(
-                    competition_id=comp.competition_id
-                ).count()
-                
-                # マッピング数
-                mapping_count = db.query(FlexibleSensorMapping).filter_by(
-                    competition_id=comp.competition_id
-                ).count()
-                
-                comp_data["stats"] = {
-                    "participants": participant_count,
-                    "wbgt_records": wbgt_count,
-                    "mappings": mapping_count
-                }
-            
-            competition_list.append(comp_data)
-        
-        return {
-            "competitions": competition_list,
-            "total": len(competition_list)
-        }
-        
-    except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"大会一覧取得エラー: {str(e)}"
-        )
+            for comp in competitions
+        ]
+    }
 
 
 @router.get("/competitions/{competition_id}")
-async def get_competition_detail(
+async def get_competition(
     competition_id: str,
     db: Session = Depends(get_db),
     current_admin: AdminUser = Depends(get_current_admin)
@@ -161,68 +140,32 @@ async def get_competition_detail(
             detail="大会が見つかりません"
         )
     
-    try:
-        # 参加者一覧
-        race_records = db.query(RaceRecord).filter_by(
-            competition_id=competition_id
-        ).all()
-        
-        participants = []
-        for record in race_records:
-            from app.models.user import User
-            user = db.query(User).filter_by(user_id=record.user_id).first()
-            if user:
-                participants.append({
-                    "user_id": user.user_id,
-                    "full_name": user.full_name,
-                    "bib_number": record.bib_number,
-                    "swim_start": record.swim_start.isoformat() if record.swim_start else None,
-                    "swim_finish": record.swim_finish.isoformat() if record.swim_finish else None,
-                    "bike_start": record.bike_start.isoformat() if record.bike_start else None,
-                    "bike_finish": record.bike_finish.isoformat() if record.bike_finish else None,
-                    "run_start": record.run_start.isoformat() if record.run_start else None,
-                    "run_finish": record.run_finish.isoformat() if record.run_finish else None
-                })
-        
-        # WBGT データ統計
-        wbgt_count = db.query(WBGTData).filter_by(competition_id=competition_id).count()
-        
-        # マッピング情報
-        mappings = db.query(FlexibleSensorMapping).filter_by(
-            competition_id=competition_id
-        ).all()
-        
-        return {
-            "competition": {
-                "competition_id": competition.competition_id,
-                "name": competition.name,
-                "date": competition.date.isoformat() if competition.date else None,
-                "location": competition.location,
-                "description": competition.description,
-                "created_at": competition.created_at.isoformat() if competition.created_at else None
-            },
-            "participants": participants,
-            "data_summary": {
-                "participant_count": len(participants),
-                "wbgt_records": wbgt_count,
-                "mapping_count": len(mappings)
-            }
+    # 関連データ数取得
+    race_records_count = db.query(RaceRecord).filter_by(competition_id=competition_id).count()
+    wbgt_count = db.query(WBGTData).filter_by(competition_id=competition_id).count()
+    mapping_count = db.query(FlexibleSensorMapping).filter_by(competition_id=competition_id).count()
+    
+    return {
+        "competition": {
+            "competition_id": competition.competition_id,
+            "name": competition.name,
+            "date": competition.date.isoformat() if competition.date else None,
+            "location": competition.location,
+            "description": competition.description,
+            "created_at": competition.created_at.isoformat()
+        },
+        "stats": {
+            "race_records": race_records_count,
+            "wbgt_data": wbgt_count,
+            "mappings": mapping_count
         }
-        
-    except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"大会詳細取得エラー: {str(e)}"
-        )
+    }
 
 
 @router.put("/competitions/{competition_id}")
 async def update_competition(
     competition_id: str,
-    name: str = None,
-    date: str = None,
-    location: str = None,
-    description: str = None,
+    competition_data: CompetitionCreate = Body(...),
     db: Session = Depends(get_db),
     current_admin: AdminUser = Depends(get_current_admin)
 ):
@@ -236,34 +179,22 @@ async def update_competition(
         )
     
     try:
-        # 更新可能なフィールドの処理
-        if name is not None:
-            # 名前重複チェック（自分以外）
-            existing = db.query(Competition).filter(
-                Competition.name == name,
-                Competition.competition_id != competition_id
-            ).first()
-            if existing:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"大会名 '{name}' は既に存在します"
-                )
-            competition.name = name
+        competition.name = competition_data.name
         
-        if date is not None:
+        if competition_data.date:
             try:
-                competition.date = datetime.strptime(date, "%Y-%m-%d").date()
+                competition.date = datetime.strptime(competition_data.date, "%Y-%m-%d").date()
             except ValueError:
                 raise HTTPException(
                     status_code=400,
                     detail="日付は YYYY-MM-DD 形式で入力してください"
                 )
         
-        if location is not None:
-            competition.location = location
+        if competition_data.location is not None:
+            competition.location = competition_data.location
         
-        if description is not None:
-            competition.description = description
+        if competition_data.description is not None:
+            competition.description = competition_data.description
         
         # updated_atが存在する場合は更新
         if hasattr(competition, 'updated_at'):
@@ -314,6 +245,15 @@ async def delete_competition(
         wbgt_count = db.query(WBGTData).filter_by(competition_id=competition_id).count()
         mapping_count = db.query(FlexibleSensorMapping).filter_by(competition_id=competition_id).count()
         
+        # センサーデータのカウント
+        skin_temp_count = db.query(SkinTemperatureData).filter_by(competition_id=competition_id).count()
+        core_temp_count = db.query(CoreTemperatureData).filter_by(competition_id=competition_id).count()
+        heart_rate_count = db.query(HeartRateData).filter_by(competition_id=competition_id).count()
+        
+        # バッチ情報のカウント
+        from app.models.flexible_sensor_data import UploadBatch
+        batch_count = db.query(UploadBatch).filter_by(competition_id=competition_id).count()
+        
         # 1. 大会記録を削除
         db.query(RaceRecord).filter_by(competition_id=competition_id).delete()
         
@@ -323,19 +263,30 @@ async def delete_competition(
         # 3. センサーマッピングを削除
         db.query(FlexibleSensorMapping).filter_by(competition_id=competition_id).delete()
         
-        # 4. 大会本体を削除
+        # 4. センサーデータを削除
+        db.query(SkinTemperatureData).filter_by(competition_id=competition_id).delete()
+        db.query(CoreTemperatureData).filter_by(competition_id=competition_id).delete()
+        db.query(HeartRateData).filter_by(competition_id=competition_id).delete()
+        
+        # 5. アップロードバッチ情報を削除
+        db.query(UploadBatch).filter_by(competition_id=competition_id).delete()
+        
+        # 6. 大会本体を削除
         db.delete(competition)
         
         db.commit()
         
         return {
-            "message": f"大会 '{competition_name}' (ID: {competition_id}) とその関連データを削除しました",
+            "message": f"大会 '{competition_name}' とその関連データを削除しました",
             "deleted_data": {
                 "race_records": race_records_count,
                 "wbgt_records": wbgt_count,
-                "mappings": mapping_count
-            },
-            "note": "センサーデータは保持されます（正規化設計）"
+                "mappings": mapping_count,
+                "skin_temperature": skin_temp_count,
+                "core_temperature": core_temp_count,
+                "heart_rate": heart_rate_count,
+                "upload_batches": batch_count
+            }
         }
         
     except Exception as e:
