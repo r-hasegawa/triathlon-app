@@ -11,7 +11,7 @@ triathlon-backend/htmlcov/
 
 # FastAPI/Python固有
 triathlon-backend/.env
-triathlon-backend/.env.local
+triathlon-frontend/.env.development
 triathlon-backend/.env.production
 
 # データベースファイル（開発用SQLite）
@@ -43,11 +43,8 @@ triathlon-frontend/.vite/
 
 # 環境変数
 triathlon-frontend/.env
-triathlon-frontend/.env.local
-triathlon-frontend/.env.development.local
-triathlon-frontend/.env.test.local
+triathlon-frontend/.env.development
 triathlon-frontend/.env.production
-triathlon-frontend/.env.production.local
 
 # TypeScript
 triathlon-frontend/*.tsbuildinfo

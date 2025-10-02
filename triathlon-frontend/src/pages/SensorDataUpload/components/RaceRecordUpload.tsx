@@ -33,7 +33,7 @@ const RaceRecordUpload: React.FC<RaceRecordUploadProps> = ({
       }
 
       const token = localStorage.getItem('access_token');
-      const response = await fetch('http://localhost:8000/admin/upload/race-records', {
+      const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/admin/upload/race-records`, {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${token}` },
         body: formData

@@ -248,54 +248,38 @@ async def delete_user(
     db: Session = Depends(get_db),
     current_admin: AdminUser = Depends(get_current_admin)
 ):
-    """ユーザー削除（仕様書5.1対応）"""
+    """ユーザー削除（RaceRecord対応修正版）"""
     
-    # ユーザー存在チェック
     user = db.query(User).filter_by(user_id=user_id).first()
     if not user:
-        raise HTTPException(
-            status_code=404,
-            detail="ユーザーが見つかりません"
-        )
+        raise HTTPException(status_code=404, detail="ユーザーが見つかりません")
     
     user_name = user.full_name or user.username
     
     try:
-        # データ削除統計（削除前にカウント）
-        race_records_count = db.query(RaceRecord).filter_by(user_id=user_id).count()
+        # マッピング数をカウント
         mapping_count = db.query(FlexibleSensorMapping).filter_by(user_id=user_id).count()
         
-        # センサーデータ数（削除はしない、正規化設計のため）
+        # センサーデータ数（削除しない）
         skin_temp_count = get_user_sensor_data_count(db, user_id, "skin_temperature")
         core_temp_count = get_user_sensor_data_count(db, user_id, "core_temperature")
         heart_rate_count = get_user_sensor_data_count(db, user_id, "heart_rate")
         
-        # 1. 大会記録を削除
-        db.query(RaceRecord).filter_by(user_id=user_id).delete()
+        # マッピングを削除（RaceRecordとの関連も切れる）
+        # db.query(FlexibleSensorMapping).filter_by(user_id=user_id).delete()
         
-        # 2. センサーマッピングを削除
-        db.query(FlexibleSensorMapping).filter_by(user_id=user_id).delete()
-        
-        # 3. ユーザー本体を削除
+        # ユーザー本体を削除
         db.delete(user)
-        
         db.commit()
         
         return {
             "message": f"ユーザー '{user_name}' (ID: {user_id}) を削除しました",
-            "deleted_data": {
-                "race_records": race_records_count,
-                "mappings": mapping_count
-            },
-            "note": f"センサーデータ {skin_temp_count + core_temp_count + heart_rate_count} 件は保持されます（正規化設計）"
+            "note": f"センサーデータ {skin_temp_count + core_temp_count + heart_rate_count} 件は保持されます"
         }
         
     except Exception as e:
         db.rollback()
-        raise HTTPException(
-            status_code=500,
-            detail=f"ユーザー削除エラー: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail=f"ユーザー削除エラー: {str(e)}")
 
 
 @router.post("/users/{user_id}/reset-password")

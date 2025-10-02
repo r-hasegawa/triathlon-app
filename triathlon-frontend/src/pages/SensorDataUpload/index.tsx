@@ -90,7 +90,7 @@ export const useCompetitions = () => {
     setIsLoading(true);
     try {
       const token = localStorage.getItem('access_token');
-      const response = await fetch('http://localhost:8000/admin/competitions', {
+      const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/admin/competitions`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       if (response.ok) {
@@ -124,7 +124,7 @@ export const useUploadBatches = () => {
     setIsLoading(true);
     try {
       const token = localStorage.getItem('access_token');
-      const url = `http://localhost:8000/admin/batches?competition_id=${competitionId}`;
+      const url = `${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/admin/batches?competition_id=${competitionId}`;
       const response = await fetch(url, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
@@ -144,7 +144,7 @@ export const useUploadBatches = () => {
 
     try {
       const token = localStorage.getItem('access_token');
-      const response = await fetch(`http://localhost:8000/admin/batches/${batchId}`, {
+      const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/admin/batches/${batchId}`, {
         method: 'DELETE',
         headers: { 'Authorization': `Bearer ${token}` }
       });
@@ -165,58 +165,6 @@ export const useUploadBatches = () => {
 
   return { batches, isLoading, reload: loadBatches, deleteBatch };
 };
-
-// export const useFileUpload = (endpoint: string) => {
-//   const [isLoading, setIsLoading] = useState(false);
-
-//   const upload = async (
-//     files: FileList | File,
-//     competitionId: string,
-//     additionalData?: Record<string, any>
-//   ): Promise<any> => {
-//     setIsLoading(true);
-//     try {
-//       const formData = new FormData();
-//       formData.append('competition_id', competitionId);
-
-//       console.log(formData);
-
-//       if (files instanceof FileList) {
-//         for (let i = 0; i < files.length; i++) {
-//           formData.append('files', files[i]);
-//         }
-//       } else {
-//         formData.append('file', files);
-//       }
-
-//       if (additionalData) {
-//         Object.entries(additionalData).forEach(([key, value]) => {
-//           formData.append(key, value);
-//         });
-//       }
-
-//       // console.log(additionalData);
-//       // console.log(formData);
-
-//       const token = localStorage.getItem('access_token');
-//       const response = await fetch(`http://localhost:8000${endpoint}`, {
-//         method: 'POST',
-//         headers: { 'Authorization': `Bearer ${token}` },
-//         body: formData
-//       });
-
-//       const result = await response.json();
-//       return { success: response.ok, data: result };
-//     } catch (error) {
-//       console.error('アップロードエラー:', error);
-//       return { success: false, error: 'アップロードエラーが発生しました' };
-//     } finally {
-//       setIsLoading(false);
-//     }
-//   };
-
-//   return { upload, isLoading };
-// };
 
 export const useFileUpload = (endpoint: string) => {
   const [isLoading, setIsLoading] = useState(false);
@@ -248,7 +196,7 @@ export const useFileUpload = (endpoint: string) => {
       }
 
       const token = localStorage.getItem('access_token');
-      const url = `http://localhost:8000${endpoint}`;
+      const url = `${import.meta.env.VITE_API_URL || 'http://localhost:8000'}${endpoint}`;
       const headers = { 'Authorization': `Bearer ${token}` };
 
       const response = await fetch(url, {

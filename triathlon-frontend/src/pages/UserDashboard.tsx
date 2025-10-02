@@ -55,7 +55,7 @@ export const UserDashboard: React.FC = () => {
       console.log('🔑 Token exists:', !!token);
       console.log('🔑 Token preview:', token?.substring(0, 20) + '...');
       
-      const url = 'http://localhost:8000/me/data-summary';
+      const url = `${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/me/data-summary`;
       console.log('🌐 Requesting URL:', url);
       
       const response = await fetch(url, {

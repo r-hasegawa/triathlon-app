@@ -41,7 +41,7 @@ export const CompetitionManagement: React.FC = () => {
     setIsLoading(true);
     try {
       const token = localStorage.getItem('access_token');
-      const response = await fetch('http://localhost:8000/admin/competitions?include_stats=true', {
+      const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/admin/competitions?include_stats=true`, {
         headers: {
           'Authorization': `Bearer ${token}`,
         },
@@ -70,7 +70,7 @@ export const CompetitionManagement: React.FC = () => {
 
     try {
       const token = localStorage.getItem('access_token');
-      const response = await fetch('http://localhost:8000/admin/competitions', {
+      const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/admin/competitions`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -106,7 +106,7 @@ export const CompetitionManagement: React.FC = () => {
     try {
       const token = localStorage.getItem('access_token');
       const response = await fetch(
-        `http://localhost:8000/admin/competitions/${deleteConfirm.competition_id}`,
+        `${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/admin/competitions/${deleteConfirm.competition_id}`,
         {
           method: 'DELETE',
           headers: {
