@@ -87,12 +87,6 @@ export const UserDashboard: React.FC = () => {
         throw new Error('Invalid JSON response');
       }
       
-      // データ構造の詳細ログ
-      console.log('🔍 Data structure analysis:');
-      console.log('  - Type:', typeof data);
-      console.log('  - Keys:', Object.keys(data || {}));
-      console.log('  - total_sensor_records:', data?.total_sensor_records);
-      console.log('  - competitions_participated:', data?.competitions_participated);
       
       // バックエンドのレスポンス形式に合わせて変換
       const transformedData = {
@@ -235,22 +229,6 @@ export const UserDashboard: React.FC = () => {
               <div className="text-sm text-gray-500 mt-1">心拍データ</div>
             </div>
           </div>
-          
-          {/* デバッグ情報表示 */}
-          <details className="mt-4 p-4 bg-gray-50 rounded">
-            <summary className="cursor-pointer text-sm font-medium text-gray-700">
-              🐛 デバッグ情報を表示
-            </summary>
-            <div className="mt-2 text-xs">
-              <p><strong>参加大会数:</strong> {userDataSummary?.competitions_participated}</p>
-              <p><strong>マッピング数:</strong> {userDataSummary?.mappings_count}</p>
-              <p><strong>取得した大会数:</strong> {competitions.length}</p>
-              <p><strong>Raw API Response:</strong></p>
-              <pre className="mt-2 p-2 bg-white rounded text-xs overflow-auto max-h-32">
-                {JSON.stringify(userDataSummary, null, 2)}
-              </pre>
-            </div>
-          </details>
         </Card>
 
         {/* 参加大会一覧 */}
