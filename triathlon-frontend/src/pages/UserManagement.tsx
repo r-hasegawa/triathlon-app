@@ -5,11 +5,13 @@ import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
+// アイコンは使用しない、またはプロジェクトで既に使っているアイコンライブラリに置き換えてください
 
 interface User {
   user_id: string;
   name?: string;
   full_name?: string;
+  username?: string;
   email?: string;
   created_at: string;
 }
@@ -27,16 +29,45 @@ interface BulkCreateResult {
   }>;
 }
 
+interface ImportError {
+  row: number;
+  user_id: string;
+  username: string;
+  error: string;
+}
+
+interface ImportedUser {
+  user_id: string;
+  username: string;
+  full_name: string;
+  email: string;
+}
+
+interface ImportResult {
+  success: boolean;
+  total_records: number;
+  imported_count: number;
+  skipped_count: number;
+  error_count: number;
+  errors: ImportError[];
+  imported_users: ImportedUser[];
+}
+
 export const UserManagement: React.FC = () => {
   const [users, setUsers] = useState<User[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [csvFile, setCsvFile] = useState<File | null>(null);
   const [bulkCreateResult, setBulkCreateResult] = useState<BulkCreateResult | null>(null);
+  const [importResult, setImportResult] = useState<ImportResult | null>(null);
   const [showBulkResult, setShowBulkResult] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [isDeleting, setIsDeleting] = useState<string | null>(null);
   const [isChangingPassword, setIsChangingPassword] = useState<string | null>(null);
+  const [importing, setImporting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const navigate = useNavigate();
+
+  const API_BASE_URL = 'http://localhost:8000';
 
   useEffect(() => {
     loadUsers();
@@ -46,7 +77,7 @@ export const UserManagement: React.FC = () => {
     setIsLoading(true);
     try {
       const token = localStorage.getItem('access_token');
-      const response = await fetch('http://localhost:8000/admin/users', {
+      const response = await fetch(`${API_BASE_URL}/admin/users`, {
         headers: {
           'Authorization': `Bearer ${token}`,
         },
@@ -55,11 +86,8 @@ export const UserManagement: React.FC = () => {
       if (!response.ok) throw new Error('ユーザー一覧取得に失敗しました');
       
       const data = await response.json();
-      console.log('API Response:', data); // デバッグ用
       const usersArray = data.users || [];
-      console.log('Users Array:', usersArray); // デバッグ用
       
-      // データの正規化
       const normalizedUsers = usersArray.map((user: any) => ({
         ...user,
         name: user.name || user.full_name || user.username,
@@ -77,16 +105,32 @@ export const UserManagement: React.FC = () => {
     }
   };
 
-  const uploadUsersCsv = async () => {
-    if (!csvFile) return;
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      setCsvFile(e.target.files[0]);
+      setImportResult(null);
+      setError(null);
+      setBulkCreateResult(null);
+      setShowBulkResult(false);
+    }
+  };
 
-    setIsLoading(true);
+  const handleImport = async () => {
+    if (!csvFile) {
+      setError('CSVファイルを選択してください');
+      return;
+    }
+
+    setImporting(true);
+    setError(null);
+    setImportResult(null);
+
+    const formData = new FormData();
+    formData.append('file', csvFile);
+
     try {
-      const formData = new FormData();
-      formData.append('file', csvFile);
-
       const token = localStorage.getItem('access_token');
-      const response = await fetch('http://localhost:8000/admin/users/bulk-create', {
+      const response = await fetch(`${API_BASE_URL}/admin/import-users`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -94,21 +138,37 @@ export const UserManagement: React.FC = () => {
         body: formData,
       });
 
-      if (!response.ok) throw new Error('CSV処理に失敗しました');
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.detail || 'インポート中にエラーが発生しました');
+      }
 
       const result = await response.json();
-      setBulkCreateResult(result);
-      setShowBulkResult(true);
+      setImportResult(result);
+      
+      // ファイル選択をクリア（連続してインポートできるように）
       setCsvFile(null);
+      const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement;
+      if (fileInput) fileInput.value = '';
       
       // ユーザー一覧を再読み込み
       await loadUsers();
-    } catch (error) {
-      console.error('Failed to upload users CSV:', error);
-      alert('CSVアップロードに失敗しました');
+    } catch (err: any) {
+      setError(err.message || 'インポート中にエラーが発生しました');
     } finally {
-      setIsLoading(false);
+      setImporting(false);
     }
+  };
+
+  const downloadTemplate = () => {
+    const csvContent = 'ID,user_name,full_name,e-mail,password\nuser001,tanaka,田中太郎,tanaka@example.com,password123\nuser002,sato,佐藤花子,sato@example.com,password456';
+    // UTF-8 BOM を追加してExcelでの文字化けを防ぐ
+    const bom = new Uint8Array([0xEF, 0xBB, 0xBF]);
+    const blob = new Blob([bom, csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = 'user_import_template.csv';
+    link.click();
   };
 
   const deleteUser = async (userId: string, userName: string) => {
@@ -117,7 +177,7 @@ export const UserManagement: React.FC = () => {
     setIsDeleting(userId);
     try {
       const token = localStorage.getItem('access_token');
-      const response = await fetch(`http://localhost:8000/admin/users/${userId}`, {
+      const response = await fetch(`${API_BASE_URL}/admin/users/${userId}`, {
         method: 'DELETE',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -142,7 +202,7 @@ export const UserManagement: React.FC = () => {
     setIsChangingPassword(userId);
     try {
       const token = localStorage.getItem('access_token');
-      const response = await fetch(`http://localhost:8000/admin/users/${userId}/reset-password`, {
+      const response = await fetch(`${API_BASE_URL}/admin/users/${userId}/reset-password`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -165,157 +225,183 @@ export const UserManagement: React.FC = () => {
     navigate(`/admin/users/${userId}`);
   };
 
-  const exportBulkResultCsv = () => {
-    if (!bulkCreateResult) return;
-    
-    const csvContent = [
-      '氏名,メールアドレス,User ID,ログインパスワード',
-      ...bulkCreateResult.created_users.map(user => 
-        `${user.name},${user.email},${user.user_id},${user.password}`
-      )
-    ].join('\n');
-    
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const link = document.createElement('a');
-    link.href = URL.createObjectURL(blob);
-    link.download = 'created_users.csv';
-    link.click();
-  };
-
-  // フィルタリングされたユーザーリスト
-  const filteredUsers = users.filter(user =>
-    (user.name || user.full_name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
-    (user.email || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
-    (user.user_id || '').toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const filteredUsers = users.filter(user => {
+    const searchLower = searchTerm.toLowerCase();
+    return (
+      (user.name && user.name.toLowerCase().includes(searchLower)) ||
+      (user.email && user.email.toLowerCase().includes(searchLower)) ||
+      (user.user_id && user.user_id.toLowerCase().includes(searchLower)) ||
+      (user.username && user.username.toLowerCase().includes(searchLower))
+    );
+  });
 
   return (
     <Layout>
-      <div className="space-y-8">
-        {/* ヘッダー */}
-        <div className="bg-gradient-to-r from-blue-600 to-blue-700 rounded-lg p-8">
-          <h1 className="text-3xl font-bold text-white mb-2">
-            ユーザー管理
-          </h1>
-          <p className="text-blue-100">
-            ユーザーの一括作成、一覧表示、詳細管理
-          </p>
-        </div>
+      <div className="max-w-7xl mx-auto p-6 space-y-6">
+        <h1 className="text-3xl font-bold text-gray-900">ユーザー管理</h1>
 
-        {/* 上段: ユーザー一括作成機能 */}
+        {/* ユーザー一括登録セクション */}
         <Card className="p-6">
-          <div className="flex items-center justify-between mb-6">
-            <h2 className="text-xl font-semibold text-gray-900">ユーザー一括作成</h2>
-            <div className="text-sm text-gray-500">
-              CSV形式: 氏名, メールアドレス
+          <h2 className="text-xl font-semibold text-gray-900 mb-4">ユーザー一括登録</h2>
+
+          {/* テンプレートダウンロード */}
+          <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+            <h3 className="font-semibold mb-2">📋 CSVフォーマット</h3>
+            <p className="text-sm text-gray-600 mb-3">
+              以下の形式でCSVファイルを作成してください：
+            </p>
+            <div className="bg-white p-3 rounded border font-mono text-xs mb-3">
+              ID,user_name,full_name,e-mail,password<br />
+              user001,tanaka,田中太郎,tanaka@example.com,password123
             </div>
+            <button
+              onClick={downloadTemplate}
+              className="flex items-center gap-2 px-4 py-2 rounded transition-colors"
+              style={{ backgroundColor: '#2563eb', color: '#ffffff' }}
+              onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#1d4ed8'}
+              onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#2563eb'}
+            >
+              📥 テンプレートをダウンロード
+            </button>
           </div>
-          
-          <div className="space-y-4">
+
+          {/* ファイル選択 */}
+          <div className="mb-6">
+            <label className="block mb-2 font-semibold">CSVファイルを選択</label>
             <div className="flex items-center gap-4">
-              <Input
+              <input
                 type="file"
                 accept=".csv"
-                onChange={(e) => setCsvFile(e.target.files?.[0] || null)}
-                className="flex-1"
+                onChange={handleFileChange}
+                className="flex-1 px-4 py-2 border rounded"
+                disabled={importing}
               />
               <Button
-                onClick={uploadUsersCsv}
-                disabled={!csvFile || isLoading}
-                className="min-w-[120px]"
+                onClick={handleImport}
+                disabled={!csvFile || importing}
+                className={`flex items-center gap-2 ${
+                  !csvFile || importing
+                    ? 'bg-gray-300 cursor-not-allowed'
+                    : 'bg-green-600 hover:bg-green-700'
+                }`}
               >
-                {isLoading ? (
-                  <LoadingSpinner size="sm" />
-                ) : (
-                  'CSVアップロード'
-                )}
+                📤 {importing ? 'インポート中...' : 'インポート'}
               </Button>
             </div>
-            
-            {/* 説明テキスト */}
-            <div className="text-sm text-gray-600 bg-gray-50 p-3 rounded-lg">
-              <p className="font-medium">CSV形式について:</p>
-              <ul className="mt-1 ml-4 list-disc">
-                <li>1列目: 氏名（必須）</li>
-                <li>2列目: メールアドレス（必須）</li>
-                <li>ヘッダー行は不要です</li>
-                <li>user IDとパスワードは自動生成されます</li>
-              </ul>
-            </div>
+            {csvFile && (
+              <p className="mt-2 text-sm text-gray-600">
+                選択中: {csvFile.name}
+              </p>
+            )}
           </div>
-        </Card>
 
-        {/* 一括作成結果表示 */}
-        {showBulkResult && bulkCreateResult && (
-          <Card className="p-6 border-green-200">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold text-green-800">
-                一括作成結果
-              </h3>
-              <Button
-                onClick={() => setShowBulkResult(false)}
-                variant="outline"
-                size="sm"
-              >
-                閉じる
-              </Button>
+          {/* エラー表示 */}
+          {error && (
+            <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg flex items-start gap-3">
+              <span className="text-red-600 text-xl flex-shrink-0">⚠️</span>
+              <div className="flex-1">
+                <p className="font-semibold text-red-800">エラー</p>
+                <p className="text-red-700">{error}</p>
+              </div>
             </div>
-            
+          )}
+
+          {/* インポート結果表示 */}
+          {importResult && (
             <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div className="text-center p-4 bg-green-50 rounded-lg">
-                  <div className="text-2xl font-bold text-green-600">
-                    {bulkCreateResult.created_users.length}
+              <div className={`p-4 rounded-lg border ${
+                importResult.success ? 'bg-green-50 border-green-200' : 'bg-yellow-50 border-yellow-200'
+              }`}>
+                <div className="flex items-start gap-3">
+                  <span className={`text-2xl ${importResult.success ? 'text-green-600' : 'text-yellow-600'}`}>
+                    {importResult.success ? '✓' : '⚠'}
+                  </span>
+                  <div className="flex-1">
+                    <h3 className="font-semibold mb-2">インポート結果</h3>
+                    <div className="grid grid-cols-2 gap-4 text-sm">
+                      <div>
+                        <span className="font-semibold">総レコード数:</span> {importResult.total_records}
+                      </div>
+                      <div>
+                        <span className="font-semibold text-green-600">インポート成功:</span> {importResult.imported_count}
+                      </div>
+                      <div>
+                        <span className="font-semibold text-yellow-600">スキップ:</span> {importResult.skipped_count}
+                      </div>
+                      <div>
+                        <span className="font-semibold text-red-600">エラー:</span> {importResult.error_count}
+                      </div>
+                    </div>
                   </div>
-                  <div className="text-sm text-green-600">作成成功</div>
-                </div>
-                <div className="text-center p-4 bg-red-50 rounded-lg">
-                  <div className="text-2xl font-bold text-red-600">
-                    {bulkCreateResult.errors.length}
-                  </div>
-                  <div className="text-sm text-red-600">エラー</div>
                 </div>
               </div>
-              
-              {bulkCreateResult.created_users.length > 0 && (
-                <div>
-                  <div className="flex justify-between items-center mb-3">
-                    <h4 className="font-medium">作成されたユーザー</h4>
-                    <Button
-                      onClick={exportBulkResultCsv}
-                      size="sm"
-                      variant="outline"
-                    >
-                      CSV出力
-                    </Button>
+
+              {/* エラー詳細 */}
+              {importResult.errors.length > 0 && (
+                <div className="border rounded-lg overflow-hidden">
+                  <div className="bg-red-100 px-4 py-2 font-semibold text-red-800">
+                    エラー詳細 ({importResult.errors.length}件)
                   </div>
-                  <div className="bg-gray-50 p-3 rounded text-sm max-h-40 overflow-y-auto">
-                    {bulkCreateResult.created_users.map((user, index) => (
-                      <div key={index} className="mb-1">
-                        {user.name} ({user.email}) → ID: {user.user_id}, PW: {user.password}
-                      </div>
-                    ))}
+                  <div className="max-h-64 overflow-y-auto">
+                    <table className="w-full text-sm">
+                      <thead className="bg-gray-50 sticky top-0">
+                        <tr>
+                          <th className="px-4 py-2 text-left">行</th>
+                          <th className="px-4 py-2 text-left">User ID</th>
+                          <th className="px-4 py-2 text-left">Username</th>
+                          <th className="px-4 py-2 text-left">エラー内容</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {importResult.errors.map((err, idx) => (
+                          <tr key={idx} className="border-t hover:bg-gray-50">
+                            <td className="px-4 py-2">{err.row}</td>
+                            <td className="px-4 py-2">{err.user_id}</td>
+                            <td className="px-4 py-2">{err.username}</td>
+                            <td className="px-4 py-2 text-red-600">{err.error}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
                   </div>
                 </div>
               )}
-              
-              {bulkCreateResult.errors.length > 0 && (
-                <div>
-                  <h4 className="font-medium text-red-600 mb-3">エラー詳細</h4>
-                  <div className="bg-red-50 p-3 rounded text-sm max-h-40 overflow-y-auto">
-                    {bulkCreateResult.errors.map((error, index) => (
-                      <div key={index} className="mb-1 text-red-700">
-                        行{error.row}: {error.error}
-                      </div>
-                    ))}
+
+              {/* インポート成功ユーザー */}
+              {importResult.imported_users.length > 0 && (
+                <div className="border rounded-lg overflow-hidden">
+                  <div className="bg-green-100 px-4 py-2 font-semibold text-green-800">
+                    インポート成功 ({importResult.imported_users.length}件)
+                  </div>
+                  <div className="max-h-64 overflow-y-auto">
+                    <table className="w-full text-sm">
+                      <thead className="bg-gray-50 sticky top-0">
+                        <tr>
+                          <th className="px-4 py-2 text-left">User ID</th>
+                          <th className="px-4 py-2 text-left">Username</th>
+                          <th className="px-4 py-2 text-left">氏名</th>
+                          <th className="px-4 py-2 text-left">Email</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {importResult.imported_users.map((user, idx) => (
+                          <tr key={idx} className="border-t hover:bg-gray-50">
+                            <td className="px-4 py-2">{user.user_id}</td>
+                            <td className="px-4 py-2">{user.username}</td>
+                            <td className="px-4 py-2">{user.full_name}</td>
+                            <td className="px-4 py-2">{user.email}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
                   </div>
                 </div>
               )}
             </div>
-          </Card>
-        )}
+          )}
+        </Card>
 
-        {/* 下段: ユーザー一覧 */}
+        {/* ユーザー一覧セクション */}
         <Card className="p-6">
           <div className="flex items-center justify-between mb-6">
             <h2 className="text-xl font-semibold text-gray-900">ユーザー一覧</h2>

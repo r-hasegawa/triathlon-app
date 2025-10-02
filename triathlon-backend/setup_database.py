@@ -52,78 +52,11 @@ def create_initial_users():
             db.add(admin_user)
             print("✅ Admin user created (username: admin, password: admin123)")
         
-        # テストユーザー作成
-        test_users = [
-            ("user001", "testuser1", "田中太郎", "user001@example.com"),
-            ("user002", "testuser2", "佐藤花子", "user002@example.com"),
-            ("user003", "testuser3", "山田次郎", "user003@example.com"),
-            ("user004", "testuser4", "鈴木美香", "user004@example.com"),
-            ("user005", "testuser5", "高橋健太", "user005@example.com"),
-        ]
-        
-        for user_id, username, full_name, email in test_users:
-            if not db.query(User).filter_by(user_id=user_id).first():
-                user = User(
-                    user_id=user_id,
-                    username=username,
-                    hashed_password=get_password_hash("password123"),
-                    full_name=full_name,
-                    email=email
-                )
-                db.add(user)
-                print(f"✅ Test user created: {username} (password: password123)")
-        
         db.commit()
         
     except Exception as e:
         print(f"❌ Error creating users: {e}")
         db.rollback()
-    finally:
-        db.close()
-
-def create_sample_competitions():
-    """サンプル大会データ作成"""
-    db = SessionLocal()
-    
-    try:
-        # サンプル大会データ
-        competitions = [
-            {
-                "competition_id": "comp_2025_001",
-                "name": "第1回東京湾トライアスロン2025",
-                "date": date(2025, 7, 27),
-                "location": "東京都江東区お台場海浜公園",
-            },
-            {
-                "competition_id": "comp_2025_002", 
-                "name": "真夏の湘南オープンウォータートライアスロン",
-                "date": date(2025, 8, 10),
-                "location": "神奈川県藤沢市湘南海岸",
-            },
-            {
-                "competition_id": "comp_2025_003",
-                "name": "秋季アイアンマン研究大会",
-                "date": date(2025, 10, 5),
-                "location": "千葉県館山市",
-            }
-        ]
-        
-        competition_ids = []
-        
-        for comp_data in competitions:
-            if not db.query(Competition).filter_by(competition_id=comp_data["competition_id"]).first():
-                competition = Competition(**comp_data)
-                db.add(competition)
-                competition_ids.append(comp_data["competition_id"])
-                print(f"✅ Competition created: {comp_data['name']}")
-        
-        db.commit()
-        return competition_ids
-        
-    except Exception as e:
-        print(f"❌ Error creating competitions: {e}")
-        db.rollback()
-        return []
     finally:
         db.close()
 
@@ -136,15 +69,11 @@ def main():
     create_tables()
     print()
     
-    # ステップ2: 初期ユーザー作成
+    # ステップ2: adminユーザー作成
     print("👥 Creating initial users...")
     create_initial_users()
     print()
     
-    # ステップ3: 大会データ作成
-    print("🏆 Creating sample competitions...")
-    competition_ids = create_sample_competitions()
-    print()
     
     print("=" * 80)
     print("🎉 Database initialization completed with complete race record support!")
