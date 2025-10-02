@@ -228,15 +228,6 @@ export const useFileUpload = (endpoint: string) => {
     additionalData?: Record<string, any>
   ): Promise<any> => {
     setIsLoading(true);
-    // [1] 関数の開始と引数をログに残す
-    console.log('--- アップロード処理を開始します ---');
-    console.log('引数:', {
-      endpoint,
-      competitionId,
-      fileCount: files instanceof FileList ? files.length : 1,
-      additionalData,
-    });
-    console.log('------------------------------------');
 
     try {
       const formData = new FormData();
@@ -256,22 +247,9 @@ export const useFileUpload = (endpoint: string) => {
         });
       }
 
-      // [2] FormDataの中身をログに残す
-      console.log('--- FormDataの内容 ---');
-      for (const pair of formData.entries()) {
-        console.log(`${pair[0]}: `, pair[1]);
-      }
-      console.log('----------------------');
-
       const token = localStorage.getItem('access_token');
       const url = `http://localhost:8000${endpoint}`;
       const headers = { 'Authorization': `Bearer ${token}` };
-
-      // [3] Fetchリクエストの情報をログに残す
-      console.log('--- Fetchリクエストの送信 ---');
-      console.log('URL:', url);
-      console.log('Headers:', headers);
-      console.log('----------------------------');
 
       const response = await fetch(url, {
         method: 'POST',
@@ -280,13 +258,6 @@ export const useFileUpload = (endpoint: string) => {
       });
 
       const result = await response.json();
-      
-      // [4] サーバーからのレスポンスをログに残す
-      console.log('--- サーバーからのレスポンス ---');
-      console.log('レスポンスのOK状態:', response.ok);
-      console.log('HTTPステータスコード:', response.status);
-      console.log('レスポンスデータ:', result);
-      console.log('--------------------------------');
 
       return { success: response.ok, data: result };
     } catch (error) {
@@ -297,8 +268,6 @@ export const useFileUpload = (endpoint: string) => {
       return { success: false, error: 'アップロードエラーが発生しました' };
     } finally {
       setIsLoading(false);
-      // [6] 処理の終了をログに残す
-      console.log('--- アップロード処理が終了しました ---');
     }
   };
 
