@@ -19,4 +19,5 @@ class LoginResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
     user_info: dict
+    email: Optional[str] = None
     expires_in: int

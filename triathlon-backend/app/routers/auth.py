@@ -42,6 +42,7 @@ async def login(
                 "user_id": user.user_id,
                 "username": user.username,
                 "full_name": user.full_name,
+                "email": user.email,
                 "is_admin": False
             },
             expires_in=ACCESS_TOKEN_EXPIRE_MINUTES * 60
