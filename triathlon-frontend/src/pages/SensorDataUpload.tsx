@@ -43,6 +43,20 @@ interface UploadResult {
   errors?: string[];
 }
 
+interface RaceRecordsUploadResult {
+  success: boolean;
+  message: string;
+  batch_id: string;
+  competition_id: string;
+  competition_name: string;
+  total_files: number;
+  participants_count: number;
+  total_records: number;
+  deleted_old_records: number;
+  errors?: string[];
+  upload_time: string;
+}
+
 interface UploadBatch {
   batch_id: string;
   sensor_type: string;
@@ -156,6 +170,77 @@ const CoreTemperatureUploadResults: React.FC<{ results: UploadResult[] }> = ({ r
   );
 };
 
+const RaceRecordsUploadResults: React.FC<{ result: RaceRecordsUploadResult | null }> = ({ result }) => {
+  if (!result) return null;
+
+  const hasErrors = result.errors && result.errors.length > 0;
+
+  return (
+    <div className="mt-4">
+      <div className={`rounded-lg border-2 p-4 ${
+        result.success && !hasErrors
+          ? 'bg-green-50 border-green-300'
+          : hasErrors
+          ? 'bg-yellow-50 border-yellow-300'
+          : 'bg-red-50 border-red-300'
+      }`}>
+        {/* ヘッダー */}
+        <div className="flex items-center justify-between mb-3">
+          <h4 className="text-lg font-bold text-gray-900">
+            {result.competition_name}
+          </h4>
+          <span className={`px-3 py-1 rounded-full text-sm font-medium ${
+            result.success ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
+          }`}>
+            {result.success ? '✓ 成功' : '✗ 失敗'}
+          </span>
+        </div>
+
+        {/* メインメッセージ */}
+        <div className="mb-3">
+          <p className="text-xl font-bold text-gray-900">
+            {result.participants_count}人分のデータ
+          </p>
+          <p className="text-sm text-gray-600">{result.message}</p>
+        </div>
+
+        {/* 詳細情報 */}
+        <div className="flex flex-wrap gap-4 text-sm text-gray-600">
+          <span>📁 ファイル数: {result.total_files}</span>
+          <span>📝 総レコード数: {result.total_records}</span>
+          {result.deleted_old_records > 0 && (
+            <span className="text-orange-600">
+              🗑️ 削除された旧データ: {result.deleted_old_records}件
+            </span>
+          )}
+        </div>
+
+        {/* バッチID */}
+        <div className="mt-2 text-xs text-gray-500">
+          Batch ID: {result.batch_id}
+        </div>
+
+        {/* エラー表示 */}
+        {hasErrors && (
+          <div className="mt-3 pt-3 border-t border-yellow-300">
+            <h5 className="font-semibold text-sm text-yellow-800 mb-2">
+              ⚠️ 警告 ({result.errors!.length}件)
+            </h5>
+            <ul className="space-y-1 text-sm text-yellow-700">
+              {result.errors!.slice(0, 3).map((error, idx) => (
+                <li key={idx}>• {error}</li>
+              ))}
+              {result.errors!.length > 3 && (
+                <li className="text-gray-600">... 他 {result.errors!.length - 3}件</li>
+              )}
+            </ul>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
 export const SensorDataUpload: React.FC = () => {
   const [competitions, setCompetitions] = useState<Competition[]>([]);
   const [selectedCompetition, setSelectedCompetition] = useState('');
@@ -194,6 +279,7 @@ export const SensorDataUpload: React.FC = () => {
   const [raceRecordResults, setRaceRecordResults] = useState<UploadResult[]>([]);
   const [raceRecordStatus, setRaceRecordStatus] = useState<RaceRecordStatus | null>(null);
   const raceRecordInputRef = useRef<HTMLInputElement>(null);
+  const [raceRecordResult, setRaceRecordResult] = useState<RaceRecordsUploadResult | null>(null);
 
 
   useEffect(() => {
@@ -630,7 +716,7 @@ export const SensorDataUpload: React.FC = () => {
         formData.append('files', file);
       });
 
-      const token = localStorage.getItem('access_token'); // 修正: 'token' -> 'access_token'
+      const token = localStorage.getItem('access_token');
       const response = await fetch('http://localhost:8000/admin/upload/race-records', {
         method: 'POST',
         headers: {
@@ -642,40 +728,15 @@ export const SensorDataUpload: React.FC = () => {
       const result = await response.json();
 
       if (response.ok) {
-        setRaceRecordResults([{
-          success: result.success,
-          message: result.message,
-          total: result.total_csv_records || 0,
-          processed: result.saved_records || 0,
-          skipped: result.failed_records || 0,
-          errors: result.errors || [],
-          status: result.success ? 'success' : 'failed'
-        }]);
-        
-        await loadUploadBatches();
+        setRaceRecordResult(result);
         resetRaceRecordFiles();
+        loadUploadBatches();
       } else {
-        setRaceRecordResults([{
-          success: false,
-          message: result.detail || 'アップロードに失敗しました',
-          total: 0,
-          processed: 0,
-          skipped: 0,
-          errors: [result.detail || 'Unknown error'],
-          status: 'failed'
-        }]);
+        alert(result.detail || 'アップロードに失敗しました');
       }
     } catch (error) {
-      console.error('Race record upload error:', error);
-      setRaceRecordResults([{
-        success: false,
-        message: 'ネットワークエラーが発生しました',
-        total: 0,
-        processed: 0,
-        skipped: 0,
-        errors: ['Network error'],
-        status: 'failed'
-      }]);
+      console.error('Race record upload failed:', error);
+      alert('アップロードエラーが発生しました');
     } finally {
       setIsLoading(false);
     }
@@ -841,7 +902,7 @@ return (
                 </Button>
 
                 <CoreTemperatureUploadResults results={coreTempResults} />
-                
+
               </div>
             </Card>
 
@@ -1075,51 +1136,13 @@ return (
             </Card>
 
             {/* 6. 大会記録アップロード */}
-            <Card className="p-6 border-l-4 border-l-yellow-500">
-              <h2 className="text-lg font-semibold mb-4">6. 大会記録アップロード</h2>
-              
+            <Card className="p-6 border-l-4 border-l-red-500 mb-6">
+              <h2 className="text-lg font-semibold mb-4">6. 大会記録データ</h2>
               <div className="space-y-4">
-                {/* 説明 */}
-                <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
-                  <h3 className="font-medium text-yellow-800 mb-2">📋 大会記録について</h3>
-                  <ul className="text-sm text-yellow-700 space-y-1">
-                    <li>• 複数のCSVファイルを同時にアップロード可能</li>
-                    <li>• ゼッケン番号（"No."列）で自動統合</li>
-                    <li>• 🆕 実データ形式対応：START/SF/BS/RS/RF列</li>
-                    <li>• 🆕 バイクLAP（BL1,BL2...）とランLAP（RL1,RL2...）対応</li>
-                    <li>• SWIM/BIKE/RUN区間を自動判定</li>
-                  </ul>
-                </div>
-
-                {/* 現在の状況表示 */}
-                {raceRecordStatus && (
-                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                    <h3 className="font-medium text-blue-800 mb-2">📊 現在の大会記録状況</h3>
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-                      <div>
-                        <span className="text-blue-600 font-medium">総記録数:</span>
-                        <span className="ml-1 font-semibold">{raceRecordStatus.total_records}件</span>
-                      </div>
-                      <div>
-                        <span className="text-green-600 font-medium">マッピング済:</span>
-                        <span className="ml-1 font-semibold">{raceRecordStatus.mapped_records}件</span>
-                      </div>
-                      <div>
-                        <span className="text-orange-600 font-medium">未マッピング:</span>
-                        <span className="ml-1 font-semibold">{raceRecordStatus.unmapped_records}件</span>
-                      </div>
-                      <div>
-                        <span className="text-purple-600 font-medium">カバー率:</span>
-                        <span className="ml-1 font-semibold">{raceRecordStatus.mapping_coverage}%</span>
-                      </div>
-                    </div>
-                  </div>
-                )}
-
                 {/* ファイル選択 */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
-                    大会記録CSVファイル（複数選択可能）
+                    CSVファイル（複数選択可能）
                   </label>
                   <input
                     ref={raceRecordInputRef}
@@ -1127,95 +1150,25 @@ return (
                     multiple
                     accept=".csv"
                     onChange={(e) => setRaceRecordFiles(e.target.files)}
-                    className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-yellow-50 file:text-yellow-700 hover:file:bg-yellow-100"
+                    className="w-full p-2 border border-gray-300 rounded-md"
                   />
-                  {raceRecordFiles && (
-                    <div className="mt-2">
-                      <p className="text-sm text-gray-600">
-                        選択ファイル: {raceRecordFiles.length}個
-                      </p>
-                      <ul className="text-xs text-gray-500 mt-1 space-y-1">
-                        {Array.from(raceRecordFiles).map((file, index) => (
-                          <li key={index} className="flex items-center">
-                            📄 {file.name} ({(file.size / 1024).toFixed(1)}KB)
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
+                  <p className="text-sm text-gray-500 mt-1">
+                    複数のCSVファイルをゼッケン番号で統合します
+                  </p>
                 </div>
 
                 {/* アップロードボタン */}
-                <div className="flex space-x-2">
-                  <Button
-                    onClick={handleRaceRecordUpload}
-                    disabled={!raceRecordFiles || !selectedCompetition || isLoading}
-                    className="flex-1"
-                  >
-                    {isLoading ? '処理中...' : '大会記録アップロード'}
-                  </Button>
-                  
-                  <Button
-                    onClick={resetRaceRecordFiles}
-                    variant="outline"
-                  >
-                    リセット
-                  </Button>
-                </div>
+                <Button 
+                  onClick={handleRaceRecordUpload}
+                  disabled={!raceRecordFiles || isLoading}
+                  className="w-full"
+                >
+                  {isLoading ? '処理中...' : '大会記録アップロード'}
+                </Button>
 
                 {/* アップロード結果表示 */}
-                {raceRecordResults.length > 0 && (
-                  <div className="space-y-2">
-                    {raceRecordResults.map((result, index) => (
-                      <div
-                        key={index}
-                        className={`p-4 rounded-lg border ${
-                          result.success 
-                            ? 'bg-green-50 border-green-200' 
-                            : 'bg-red-50 border-red-200'
-                        }`}
-                      >
-                        <div className={`font-medium ${
-                          result.success ? 'text-green-800' : 'text-red-800'
-                        }`}>
-                          {result.message}
-                        </div>
-                        
-                        {result.total > 0 && (
-                          <div className="mt-2 grid grid-cols-3 gap-4 text-sm">
-                            <div>
-                              <span className="text-gray-600">CSV記録:</span>
-                              <span className="ml-1 font-semibold">{result.total}件</span>
-                            </div>
-                            <div>
-                              <span className="text-green-600">保存成功:</span>
-                              <span className="ml-1 font-semibold">{result.processed}件</span>
-                            </div>
-                            <div>
-                              <span className="text-red-600">失敗:</span>
-                              <span className="ml-1 font-semibold">{result.skipped}件</span>
-                            </div>
-                          </div>
-                        )}
-                        
-                        {result.errors && result.errors.length > 0 && (
-                          <div className="mt-2">
-                            <details className="text-sm">
-                              <summary className="cursor-pointer text-red-700 hover:text-red-900">
-                                エラー詳細 ({result.errors.length}件)
-                              </summary>
-                              <ul className="mt-1 space-y-1 text-red-600 ml-4">
-                                {result.errors.map((error, errorIndex) => (
-                                  <li key={errorIndex}>• {error}</li>
-                                ))}
-                              </ul>
-                            </details>
-                          </div>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                )}
+                <RaceRecordsUploadResults result={raceRecordResult} />
+
               </div>
             </Card>
 
