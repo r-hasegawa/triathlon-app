@@ -2,11 +2,7 @@
 
 import axios from 'axios';
 
-// 開発環境では /api プレフィックスを使用（プロキシ経由）
-// 本番環境では直接バックエンドURLを使用
-const BASE_URL = process.env.NODE_ENV === 'production' 
-  ? 'http://localhost:8000'  // 本番環境（直接）
-  : '/api';                  // 開発環境（プロキシ経由）
+const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
 export const api = axios.create({
   baseURL: BASE_URL,
