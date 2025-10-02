@@ -10,7 +10,7 @@ import os
 
 from .database import engine, Base
 from .routers import auth, user_data, feedback
-from .routers.admin import router as admin_router  # 管理者ルーターを正しくインポート
+from .routers.admin import router as admin_router
 
 # ログ設定
 logging.basicConfig(
@@ -31,39 +31,43 @@ app = FastAPI(
     redoc_url="/redoc"
 )
 
-# CORS設定
+# 🆕 CORS設定（環境変数対応）
+FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:3000")
+
+allowed_origins = [
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+]
+
+# 本番環境のフロントエンドURLを追加
+if FRONTEND_URL not in allowed_origins:
+    allowed_origins.append(FRONTEND_URL)
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",  # フロントエンド開発サーバー
-        "http://127.0.0.1:3000",
-        "http://localhost:5173",  # Vite開発サーバー
-        "http://127.0.0.1:5173",
-    ],
+    allow_origins=allowed_origins,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
 )
 
-# 静的ファイル配信（アップロード済みファイル用）
+# 静的ファイル配信
 uploads_dir = "uploads"
 if not os.path.exists(uploads_dir):
     os.makedirs(uploads_dir)
 
 app.mount("/uploads", StaticFiles(directory=uploads_dir), name="uploads")
 
-# ルーター登録（正しい順序で）
+# ルーター登録
 app.include_router(auth.router, prefix="/auth", tags=["認証"])
-app.include_router(admin_router, tags=["管理者"])  # 管理者ルーター（/adminプレフィックス含む）
-app.include_router(user_data.router, tags=["ユーザーデータ"])  # /meプレフィックス含む
-app.include_router(feedback.router, tags=["フィードバック"])  # フィードバック機能
+app.include_router(admin_router, tags=["管理者"])
+app.include_router(user_data.router, tags=["ユーザーデータ"])
+app.include_router(feedback.router, tags=["フィードバック"])
 
-# ヘルスチェックエンドポイント
 @app.get("/health")
 async def health_check():
-    """
-    システムの状態確認
-    """
     return {
         "status": "healthy",
         "service": "triathlon-feedback-system",
