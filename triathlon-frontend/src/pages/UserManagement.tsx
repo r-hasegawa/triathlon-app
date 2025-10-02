@@ -83,7 +83,7 @@ export const UserManagement: React.FC = () => {
         },
       });
       
-      if (!response.ok) throw new Error('ユーザー一覧取得に失敗しました');
+      if (!response.ok) throw new Error('ユーザ一覧取得に失敗しました');
       
       const data = await response.json();
       const usersArray = data.users || [];
@@ -99,7 +99,7 @@ export const UserManagement: React.FC = () => {
       setUsers(normalizedUsers);
     } catch (error) {
       console.error('Failed to load users:', error);
-      alert('ユーザー一覧の読み込みに失敗しました');
+      alert('ユーザ一覧の読み込みに失敗しました');
     } finally {
       setIsLoading(false);
     }
@@ -151,7 +151,7 @@ export const UserManagement: React.FC = () => {
       const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement;
       if (fileInput) fileInput.value = '';
       
-      // ユーザー一覧を再読み込み
+      // ユーザ一覧を再読み込み
       await loadUsers();
     } catch (err: any) {
       setError(err.message || 'インポート中にエラーが発生しました');
@@ -172,7 +172,7 @@ export const UserManagement: React.FC = () => {
   };
 
   const deleteUser = async (userId: string, userName: string) => {
-    if (!confirm(`ユーザー「${userName}」を削除しますか？`)) return;
+    if (!confirm(`ユーザ「${userName}」を削除しますか？`)) return;
     
     setIsDeleting(userId);
     try {
@@ -186,18 +186,18 @@ export const UserManagement: React.FC = () => {
 
       if (!response.ok) throw new Error('削除に失敗しました');
       
-      alert('ユーザーを削除しました');
+      alert('ユーザを削除しました');
       await loadUsers();
     } catch (error) {
       console.error('Failed to delete user:', error);
-      alert('ユーザー削除に失敗しました');
+      alert('ユーザ削除に失敗しました');
     } finally {
       setIsDeleting(null);
     }
   };
 
   const resetPassword = async (userId: string, userName: string) => {
-    if (!confirm(`ユーザー「${userName}」のパスワードをリセットしますか？`)) return;
+    if (!confirm(`ユーザ「${userName}」のパスワードをリセットしますか？`)) return;
     
     setIsChangingPassword(userId);
     try {
@@ -238,11 +238,11 @@ export const UserManagement: React.FC = () => {
   return (
     <Layout>
       <div className="max-w-7xl mx-auto p-6 space-y-6">
-        <h1 className="text-3xl font-bold text-gray-900">ユーザー管理</h1>
+        <h1 className="text-3xl font-bold text-gray-900">ユーザ管理</h1>
 
-        {/* ユーザー一括登録セクション */}
+        {/* ユーザ一括登録セクション */}
         <Card className="p-6">
-          <h2 className="text-xl font-semibold text-gray-900 mb-4">ユーザー一括登録</h2>
+          <h2 className="text-xl font-semibold text-gray-900 mb-4">ユーザ一括登録</h2>
 
           {/* テンプレートダウンロード */}
           <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
@@ -367,7 +367,7 @@ export const UserManagement: React.FC = () => {
                 </div>
               )}
 
-              {/* インポート成功ユーザー */}
+              {/* インポート成功ユーザ */}
               {importResult.imported_users.length > 0 && (
                 <div className="border rounded-lg overflow-hidden">
                   <div className="bg-green-100 px-4 py-2 font-semibold text-green-800">
@@ -401,10 +401,10 @@ export const UserManagement: React.FC = () => {
           )}
         </Card>
 
-        {/* ユーザー一覧セクション */}
+        {/* ユーザ一覧セクション */}
         <Card className="p-6">
           <div className="flex items-center justify-between mb-6">
-            <h2 className="text-xl font-semibold text-gray-900">ユーザー一覧</h2>
+            <h2 className="text-xl font-semibold text-gray-900">ユーザ一覧</h2>
             <div className="flex items-center gap-4">
               <Input
                 type="text"
@@ -425,7 +425,7 @@ export const UserManagement: React.FC = () => {
             </div>
           ) : filteredUsers.length === 0 ? (
             <div className="text-center py-8 text-gray-500">
-              {searchTerm ? '該当するユーザーが見つかりません' : 'ユーザーがありません'}
+              {searchTerm ? '該当するユーザが見つかりません' : 'ユーザがありません'}
             </div>
           ) : (
             <div className="space-y-3">
