@@ -65,6 +65,12 @@ export const UserManagement: React.FC = () => {
   const [isChangingPassword, setIsChangingPassword] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  
+  // ページネーション用のstate
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalUsers, setTotalUsers] = useState(0);
+  const usersPerPage = 50;
+  
   const navigate = useNavigate();
 
   const API_BASE_URL = 'http://localhost:8000';
@@ -73,20 +79,25 @@ export const UserManagement: React.FC = () => {
     loadUsers();
   }, []);
 
-  const loadUsers = async () => {
+  const loadUsers = async (page: number = 1) => {
     setIsLoading(true);
     try {
       const token = localStorage.getItem('access_token');
-      const response = await fetch(`${API_BASE_URL}/admin/users`, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-        },
-      });
+      const skip = (page - 1) * usersPerPage;
+      const response = await fetch(
+        `${API_BASE_URL}/admin/users?skip=${skip}&limit=${usersPerPage}`,
+        {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+          },
+        }
+      );
       
-      if (!response.ok) throw new Error('ユーザ一覧取得に失敗しました');
+      if (!response.ok) throw new Error('ユーザー一覧取得に失敗しました');
       
       const data = await response.json();
       const usersArray = data.users || [];
+      const pagination = data.pagination || {};
       
       const normalizedUsers = usersArray.map((user: any) => ({
         ...user,
@@ -97,9 +108,11 @@ export const UserManagement: React.FC = () => {
       }));
       
       setUsers(normalizedUsers);
+      setTotalUsers(pagination.total || 0);
+      setCurrentPage(page);
     } catch (error) {
       console.error('Failed to load users:', error);
-      alert('ユーザ一覧の読み込みに失敗しました');
+      alert('ユーザー一覧の読み込みに失敗しました');
     } finally {
       setIsLoading(false);
     }
@@ -151,7 +164,7 @@ export const UserManagement: React.FC = () => {
       const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement;
       if (fileInput) fileInput.value = '';
       
-      // ユーザ一覧を再読み込み
+      // ユーザー一覧を再読み込み
       await loadUsers();
     } catch (err: any) {
       setError(err.message || 'インポート中にエラーが発生しました');
@@ -172,7 +185,7 @@ export const UserManagement: React.FC = () => {
   };
 
   const deleteUser = async (userId: string, userName: string) => {
-    if (!confirm(`ユーザ「${userName}」を削除しますか？`)) return;
+    if (!confirm(`ユーザー「${userName}」を削除しますか？`)) return;
     
     setIsDeleting(userId);
     try {
@@ -186,18 +199,18 @@ export const UserManagement: React.FC = () => {
 
       if (!response.ok) throw new Error('削除に失敗しました');
       
-      alert('ユーザを削除しました');
+      alert('ユーザーを削除しました');
       await loadUsers();
     } catch (error) {
       console.error('Failed to delete user:', error);
-      alert('ユーザ削除に失敗しました');
+      alert('ユーザー削除に失敗しました');
     } finally {
       setIsDeleting(null);
     }
   };
 
   const resetPassword = async (userId: string, userName: string) => {
-    if (!confirm(`ユーザ「${userName}」のパスワードをリセットしますか？`)) return;
+    if (!confirm(`ユーザー「${userName}」のパスワードをリセットしますか？`)) return;
     
     setIsChangingPassword(userId);
     try {
@@ -235,14 +248,25 @@ export const UserManagement: React.FC = () => {
     );
   });
 
+  const totalPages = Math.ceil(totalUsers / usersPerPage);
+  const startIndex = (currentPage - 1) * usersPerPage + 1;
+  const endIndex = Math.min(currentPage * usersPerPage, totalUsers);
+
+  const handlePageChange = (newPage: number) => {
+    if (newPage >= 1 && newPage <= totalPages) {
+      loadUsers(newPage);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+  };
+
   return (
     <Layout>
       <div className="max-w-7xl mx-auto p-6 space-y-6">
-        <h1 className="text-3xl font-bold text-gray-900">ユーザ管理</h1>
+        <h1 className="text-3xl font-bold text-gray-900">ユーザー管理</h1>
 
-        {/* ユーザ一括登録セクション */}
+        {/* ユーザー一括登録セクション */}
         <Card className="p-6">
-          <h2 className="text-xl font-semibold text-gray-900 mb-4">ユーザ一括登録</h2>
+          <h2 className="text-xl font-semibold text-gray-900 mb-4">ユーザー一括登録</h2>
 
           {/* テンプレートダウンロード */}
           <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
@@ -367,7 +391,7 @@ export const UserManagement: React.FC = () => {
                 </div>
               )}
 
-              {/* インポート成功ユーザ */}
+              {/* インポート成功ユーザー */}
               {importResult.imported_users.length > 0 && (
                 <div className="border rounded-lg overflow-hidden">
                   <div className="bg-green-100 px-4 py-2 font-semibold text-green-800">
@@ -401,10 +425,10 @@ export const UserManagement: React.FC = () => {
           )}
         </Card>
 
-        {/* ユーザ一覧セクション */}
+        {/* ユーザー一覧セクション */}
         <Card className="p-6">
           <div className="flex items-center justify-between mb-6">
-            <h2 className="text-xl font-semibold text-gray-900">ユーザ一覧</h2>
+            <h2 className="text-xl font-semibold text-gray-900">ユーザー一覧</h2>
             <div className="flex items-center gap-4">
               <Input
                 type="text"
@@ -414,7 +438,7 @@ export const UserManagement: React.FC = () => {
                 className="w-64"
               />
               <div className="text-sm text-gray-500">
-                {filteredUsers.length} / {users.length} 件
+                {startIndex}-{endIndex} / {totalUsers} 件
               </div>
             </div>
           </div>
@@ -425,7 +449,7 @@ export const UserManagement: React.FC = () => {
             </div>
           ) : filteredUsers.length === 0 ? (
             <div className="text-center py-8 text-gray-500">
-              {searchTerm ? '該当するユーザが見つかりません' : 'ユーザがありません'}
+              {searchTerm ? '該当するユーザーが見つかりません' : 'ユーザーがありません'}
             </div>
           ) : (
             <div className="space-y-3">
@@ -485,6 +509,87 @@ export const UserManagement: React.FC = () => {
                   </div>
                 </div>
               ))}
+            </div>
+          )}
+
+          {/* ページネーション */}
+          {!isLoading && totalUsers > usersPerPage && (
+            <div className="mt-6 flex items-center justify-between border-t pt-4">
+              <div className="text-sm text-gray-700">
+                ページ {currentPage} / {totalPages} （全 {totalUsers} 件）
+              </div>
+              
+              <div className="flex items-center gap-2">
+                <Button
+                  onClick={() => handlePageChange(1)}
+                  disabled={currentPage === 1}
+                  size="sm"
+                  variant="outline"
+                  className="min-w-[70px]"
+                >
+                  最初
+                </Button>
+                
+                <Button
+                  onClick={() => handlePageChange(currentPage - 1)}
+                  disabled={currentPage === 1}
+                  size="sm"
+                  variant="outline"
+                  className="min-w-[70px]"
+                >
+                  前へ
+                </Button>
+                
+                {/* ページ番号ボタン */}
+                <div className="flex items-center gap-1">
+                  {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                    let pageNum;
+                    if (totalPages <= 5) {
+                      pageNum = i + 1;
+                    } else if (currentPage <= 3) {
+                      pageNum = i + 1;
+                    } else if (currentPage >= totalPages - 2) {
+                      pageNum = totalPages - 4 + i;
+                    } else {
+                      pageNum = currentPage - 2 + i;
+                    }
+                    
+                    return (
+                      <button
+                        key={pageNum}
+                        onClick={() => handlePageChange(pageNum)}
+                        className={`min-w-[40px] h-9 px-3 rounded ${
+                          currentPage === pageNum
+                            ? 'bg-blue-600 text-white font-semibold'
+                            : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50'
+                        }`}
+                      >
+                        {pageNum}
+                      </button>
+                    );
+                  })}
+                </div>
+                
+                <Button
+                  onClick={() => handlePageChange(currentPage + 1)}
+                  disabled={currentPage === totalPages}
+                  size="sm"
+                  variant="outline"
+                  className="min-w-[70px]"
+                >
+                  次へ
+                </Button>
+                
+                <Button
+                  onClick={() => handlePageChange(totalPages)}
+                  disabled={currentPage === totalPages}
+                  size="sm"
+                  variant="outline"
+                  className="min-w-[70px]"
+                >
+                  最後
+                </Button>
+              </div>
             </div>
           )}
         </Card>
