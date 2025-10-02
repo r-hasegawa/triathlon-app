@@ -58,10 +58,8 @@ class CoreTemperatureData(Base):
     
     id = Column(Integer, primary_key=True, index=True)
     capsule_id = Column(String(100), nullable=False, index=True)
-    monitor_id = Column(String(100), nullable=False)
     datetime = Column(DateTime, nullable=False, index=True)
     temperature = Column(Float, nullable=True)
-    status = Column(String(50), nullable=True)
     
     # アップロード管理
     upload_batch_id = Column(String(200), nullable=False, index=True)

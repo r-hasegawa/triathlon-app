@@ -14,15 +14,27 @@ interface Competition {
   location: string;
 }
 
+interface SensorDetail {
+  sensor_number: number;
+  sensor_id: string;
+  success_count: number;
+  failed_count: number;
+  total_count: number;
+}
+
 interface UploadResult {
-  file: string;
+  file?: string;
+  file_name?: string;      // 🆕 追加
   batch_id?: string;
   success?: number;
   failed?: number;
   total?: number;
+  total_success?: number;  // 🆕 追加
+  total_failed?: number;   // 🆕 追加
   status: string;
   error?: string;
   sensor_ids?: string[];
+  sensor_details?: SensorDetail[];  // 🆕 追加
   trackpoints_total?: number;
   sensors_found?: number;
   message?: string;
@@ -59,6 +71,90 @@ interface RaceRecordStatus {
   mapping_coverage: number;
   competitions?: Record<string, any>;
 }
+
+const CoreTemperatureUploadResults: React.FC<{ results: UploadResult[] }> = ({ results }) => {
+  if (results.length === 0) return null;
+
+  return (
+    <div className="space-y-4 mt-4">
+      <h3 className="font-semibold text-lg">アップロード結果</h3>
+      
+      {results.map((result, fileIdx) => {
+        const fileName = result.file_name || result.file || `ファイル ${fileIdx + 1}`;
+        const statusClass = 
+          result.status === 'success' || result.status === 'SUCCESS'
+            ? 'bg-green-50 border-green-300'
+            : result.status === 'partial' || result.status === 'PARTIAL'
+            ? 'bg-yellow-50 border-yellow-300'
+            : 'bg-red-50 border-red-300';
+
+        return (
+          <div key={fileIdx} className={`rounded-lg border-2 p-4 ${statusClass}`}>
+            {/* ファイル名とサマリー */}
+            <div className="mb-3">
+              <div className="font-bold text-lg mb-2">{fileName}</div>
+              
+              {result.error ? (
+                <div className="text-red-700 font-medium">
+                  ❌ エラー: {result.error}
+                </div>
+              ) : (
+                <div className="flex gap-4 text-sm flex-wrap">
+                  <span className="text-green-700 font-medium">
+                    ✓ 成功: {result.total_success || result.success || 0}件
+                  </span>
+                  {(result.total_failed || result.failed) ? (
+                    <span className="text-red-700 font-medium">
+                      ✗ 失敗: {result.total_failed || result.failed}件
+                    </span>
+                  ) : null}
+                  <span className="text-gray-600 text-xs">
+                    Batch ID: {result.batch_id}
+                  </span>
+                </div>
+              )}
+            </div>
+
+            {/* センサー詳細 */}
+            {result.sensor_details && result.sensor_details.length > 0 && (
+              <div className="space-y-2 mt-3 pt-3 border-t border-gray-300">
+                {result.sensor_details.map((sensor) => (
+                  <div
+                    key={sensor.sensor_number}
+                    className="bg-white rounded p-3 shadow-sm"
+                  >
+                    <div className="flex items-center justify-between flex-wrap gap-2">
+                      <div className="flex-1 min-w-[200px]">
+                        <div className="font-medium text-gray-900">
+                          検出されたセンサー{sensor.sensor_number}
+                        </div>
+                        <div className="text-sm text-gray-600 font-mono mt-1">
+                          {sensor.sensor_id}
+                        </div>
+                      </div>
+                      
+                      <div className="flex gap-4 text-sm">
+                        <span className="text-green-600 font-medium">
+                          成功: {sensor.success_count}
+                        </span>
+                        <span className="text-red-600 font-medium">
+                          失敗: {sensor.failed_count}
+                        </span>
+                        <span className="text-gray-500">
+                          合計: {sensor.total_count}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+};
 
 export const SensorDataUpload: React.FC = () => {
   const [competitions, setCompetitions] = useState<Competition[]>([]);
@@ -744,24 +840,8 @@ return (
                   {isLoading ? '処理中...' : 'カプセル温データをアップロード'}
                 </Button>
 
-                {coreTempResults.length > 0 && (
-                  <div className="space-y-2">
-                    <h3 className="font-medium">アップロード結果</h3>
-                    {coreTempResults.map((result, idx) => (
-                      <div key={idx} className={`p-3 rounded border ${result.status === 'success' ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}>
-                        <div className="font-medium">{result.file}</div>
-                        {result.error ? (
-                          <div className="text-red-600 text-sm">{result.error}</div>
-                        ) : (
-                          <div className="text-sm">
-                            検出センサー: {result.sensor_ids?.join(', ')} | 
-                            成功: {result.success} / 失敗: {result.failed}
-                          </div>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                )}
+                <CoreTemperatureUploadResults results={coreTempResults} />
+                
               </div>
             </Card>
 
