@@ -128,7 +128,7 @@ export const UserDetail: React.FC = () => {
     try {
       const token = localStorage.getItem('access_token');
       const response = await fetch(
-        `${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/admin/users/${userId}/sensor-data?competition_id=${selectedCompetition}`,
+        `${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/admin/users/${userId}/feedback-data?competition_id=${selectedCompetition}`,
         {
           headers: {
             'Authorization': `Bearer ${token}`,
