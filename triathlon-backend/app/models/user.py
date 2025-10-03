@@ -13,8 +13,9 @@ class User(Base):
     full_name = Column(String(255), nullable=True)
     is_active = Column(Boolean, default=True)
     is_admin = Column(Boolean, default=False)
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+    # 🔧 timezone=True を削除（SQLite/PostgreSQL両対応）
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, onupdate=func.now())
     
     # 🔧 循環参照を避けるためリレーションを削除
     # relationshipは flexible_sensor_data.py で定義
@@ -32,8 +33,9 @@ class AdminUser(Base):
     full_name = Column(String(255), nullable=True)
     role = Column(String(50), default="admin")  # admin, super_admin
     is_active = Column(Boolean, default=True)
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-    last_login = Column(DateTime(timezone=True), nullable=True)
+    # 🔧 timezone=True を削除（SQLite/PostgreSQL両対応）
+    created_at = Column(DateTime, server_default=func.now())
+    last_login = Column(DateTime, nullable=True)
     
     def __repr__(self):
         return f"<AdminUser(admin_id='{self.admin_id}', role='{self.role}')>"

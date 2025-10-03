@@ -47,7 +47,6 @@ class SkinTemperatureData(Base):
     # アップロード管理
     upload_batch_id = Column(String(200), nullable=False, index=True)
     competition_id = Column(String(50), ForeignKey("competitions.competition_id"), nullable=False)
-    # uploaded_at = Column(DateTime, server_default=func.now())
     
     # リレーション
     competition = relationship("Competition")
@@ -64,7 +63,6 @@ class CoreTemperatureData(Base):
     # アップロード管理
     upload_batch_id = Column(String(200), nullable=False, index=True)
     competition_id = Column(String(50), ForeignKey("competitions.competition_id"), nullable=False)
-    # uploaded_at = Column(DateTime, server_default=func.now())
     
     # リレーション
     competition = relationship("Competition")
@@ -81,7 +79,6 @@ class HeartRateData(Base):
     # アップロード管理
     upload_batch_id = Column(String(200), nullable=False, index=True)
     competition_id = Column(String(50), ForeignKey("competitions.competition_id"), nullable=False)
-    # uploaded_at = Column(DateTime, server_default=func.now())
     
     # リレーション
     competition = relationship("Competition")
@@ -104,7 +101,6 @@ class WBGTData(Base):
     # アップロード管理
     upload_batch_id = Column(String(200), nullable=False, index=True)
     competition_id = Column(String(50), ForeignKey("competitions.competition_id"), nullable=False, index=True)
-    # uploaded_at = Column(DateTime, server_default=func.now())
 
     # リレーション
     competition = relationship("Competition")
@@ -150,8 +146,6 @@ class FlexibleSensorMapping(Base):
     
     # 🆕 アップロードバッチIDを追加（削除管理用）
     upload_batch_id = Column(String(200), nullable=True, index=True)
-    
-    # created_at = Column(DateTime, server_default=func.now())
     
     # リレーション
     user = relationship("User", foreign_keys=[user_id])

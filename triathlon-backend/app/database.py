@@ -11,6 +11,10 @@ DB_DIR.mkdir(exist_ok=True)
 # SQLite データベース設定
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./data/triathlon.db")
 
+# 🆕 PostgreSQLのURLを修正（Render対応） ← この3行だけ追加
+if DATABASE_URL.startswith("postgres://"):
+    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
+
 # SQLAlchemy エンジン作成
 engine = create_engine(
     DATABASE_URL,

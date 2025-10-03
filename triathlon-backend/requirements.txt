@@ -5,6 +5,7 @@ starlette==0.47.2
 
 # Database
 sqlalchemy==2.0.42
+psycopg2-binary==2.9.9
 
 # Authentication & Security
 python-jose[cryptography]==3.5.0
@@ -16,6 +17,7 @@ cryptography==45.0.6
 email-validator==2.2.0
 pydantic==2.11.7
 pydantic-core==2.33.2
+pydantic-settings==2.1.0
 
 # File Upload
 python-multipart==0.0.20
@@ -39,6 +41,3 @@ lxml==6.0.1
 # Utilities
 python-dotenv==1.1.1
 dnspython==2.7.0
-
-# PostgreSQL Support (optional)
-psycopg2-binary==2.9.9

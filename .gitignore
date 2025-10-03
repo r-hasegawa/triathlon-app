@@ -11,6 +11,7 @@ triathlon-backend/htmlcov/
 
 # FastAPI/Python固有
 triathlon-backend/.env
+triathlon-backend/.env.example
 triathlon-frontend/.env.development
 triathlon-backend/.env.production
 
