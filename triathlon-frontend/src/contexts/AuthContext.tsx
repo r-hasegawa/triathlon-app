@@ -51,6 +51,24 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     };
 
     initializeAuth();
+
+    // 🆕 401エラーによる自動ログアウトイベントを購読
+    const handleAutoLogout = () => {
+      console.log('🔒 Auto logout triggered by 401 error');
+      setAuthState({
+        user: null,
+        token: null,
+        isAuthenticated: false,
+        isLoading: false,
+      });
+    };
+
+    window.addEventListener('auth:logout', handleAutoLogout);
+
+    // クリーンアップ
+    return () => {
+      window.removeEventListener('auth:logout', handleAutoLogout);
+    };
   }, []);
 
   const login = async (username: string, password: string) => {
@@ -73,6 +91,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   };
 
   const logout = () => {
+    console.log('🚪 User logout');
     authService.logout();
     setAuthState({
       user: null,

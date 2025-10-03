@@ -46,6 +46,14 @@ export const AdminDashboard: React.FC = () => {
       setError('');
       
       const token = localStorage.getItem('access_token');
+      
+      // トークンがない場合は早期リターン
+      if (!token) {
+        setError('認証情報が見つかりません。再度ログインしてください。');
+        setIsLoading(false);
+        return;
+      }
+      
       const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/admin/stats`, {
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -54,15 +62,28 @@ export const AdminDashboard: React.FC = () => {
       });
 
       if (!response.ok) {
+        if (response.status === 401) {
+          // 401エラーは自動的にログアウトされるので、メッセージだけ設定
+          throw new Error('セッションが期限切れです。ログインページに移動します...');
+        }
         throw new Error(`API Error: ${response.status}`);
       }
 
       const data = await response.json();
       console.log('AdminDashboard stats:', data);
       setStats(data);
-    } catch (error) {
+      
+    } catch (error: any) {
       console.error('Failed to fetch stats:', error);
-      setError('統計データの取得に失敗しました');
+      
+      // エラーメッセージを分かりやすく表示
+      if (error.message.includes('401') || error.message.includes('セッション')) {
+        setError('セッションが期限切れです。ログインページに移動します...');
+      } else if (error.message.includes('Failed to fetch')) {
+        setError('サーバーに接続できません。ネットワーク接続を確認してください。');
+      } else {
+        setError(`統計データの取得に失敗しました: ${error.message}`);
+      }
     } finally {
       setIsLoading(false);
     }
