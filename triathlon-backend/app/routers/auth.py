@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 from datetime import timedelta, datetime
+from pydantic import BaseModel, Field
 
 from app.database import get_db
 from app.models.user import User, AdminUser
@@ -13,9 +14,85 @@ from app.utils.security import (
     create_access_token,
     ACCESS_TOKEN_EXPIRE_MINUTES
 )
-from app.utils.dependencies import get_current_user
+from app.utils.dependencies import get_current_user, get_current_admin
+
+
+# 認証情報変更用スキーマ
+class AdminCredentialsChange(BaseModel):
+    new_username: str = Field(..., min_length=3, max_length=100)
+    new_password: str = Field(..., min_length=8, max_length=100)
+
+class UserCredentialsChange(BaseModel):
+    new_username: str = Field(..., min_length=3, max_length=100)
+    new_password: str = Field(..., min_length=6, max_length=100)
 
 router = APIRouter()
+
+@router.post("/admin/change-credentials")
+async def change_admin_credentials(
+    credentials: AdminCredentialsChange,
+    current_admin: AdminUser = Depends(get_current_admin),
+    db: Session = Depends(get_db)
+):
+    """管理者のユーザー名とパスワードを変更"""
+    
+    # 新しいユーザー名が既に存在するかチェック（自分自身を除く）
+    existing_admin = db.query(AdminUser).filter(
+        AdminUser.username == credentials.new_username,
+        AdminUser.id != current_admin.id
+    ).first()
+    
+    if existing_admin:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Username already exists"
+        )
+    
+    # ユーザー名とパスワードを更新
+    current_admin.username = credentials.new_username
+    current_admin.hashed_password = get_password_hash(credentials.new_password)
+    
+    db.commit()
+    db.refresh(current_admin)
+    
+    return {
+        "message": "Admin credentials updated successfully",
+        "username": current_admin.username,
+        "admin_id": current_admin.admin_id
+    }
+
+@router.post("/user/change-credentials")
+async def change_user_credentials(
+    credentials: UserCredentialsChange,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """ユーザーのユーザー名とパスワードを変更"""
+    
+    # 新しいユーザー名が既に存在するかチェック（自分自身を除く）
+    existing_user = db.query(User).filter(
+        User.username == credentials.new_username,
+        User.id != current_user.id
+    ).first()
+    
+    if existing_user:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Username already exists"
+        )
+    
+    # ユーザー名とパスワードを更新
+    current_user.username = credentials.new_username
+    current_user.hashed_password = get_password_hash(credentials.new_password)
+    
+    db.commit()
+    db.refresh(current_user)
+    
+    return {
+        "message": "User credentials updated successfully",
+        "username": current_user.username,
+        "user_id": current_user.user_id
+    }
 
 @router.post("/login", response_model=LoginResponse)
 async def login(

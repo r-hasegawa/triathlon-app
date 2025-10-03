@@ -7,6 +7,8 @@ import { CompetitionManagement } from '@/pages/CompetitionManagement';
 import { UserManagement } from '@/pages/UserManagement';
 import { UserDetail } from '@/pages/UserDetail';
 import SensorDataUpload from '@/pages/SensorDataUpload';
+import AdminPasswordChange from '@/pages/AdminPasswordChange';
+import UserPasswordChange from '@/pages/UserPasswordChange';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import { ErrorBoundary } from '@/components/ui/ErrorBoundary';
 
@@ -84,7 +86,6 @@ const AppRoutes: React.FC = () => {
             }
           />
 
-
           {/* 管理者専用ルート */}
           <Route
             path="/admin/users"
@@ -114,7 +115,7 @@ const AppRoutes: React.FC = () => {
             }
           />
 
-          {/* 実データ対応アップロード画面 */}
+          {/* データアップロード画面 */}
           <Route
             path="/admin/upload" 
             element={
@@ -122,6 +123,26 @@ const AppRoutes: React.FC = () => {
                 <SensorDataUpload />
               </AdminRoute>
             } 
+          />
+
+          {/* 管理者パスワード変更ページ（管理者専用） */}
+          <Route
+            path="/admin/change-credentials"
+            element={
+              <AdminRoute>
+                <AdminPasswordChange />
+              </AdminRoute>
+            }
+          />
+
+          {/* ユーザーパスワード変更ページ（一般ユーザー用） */}
+          <Route
+            path="/user/change-credentials"
+            element={
+              <ProtectedRoute>
+                <UserPasswordChange />
+              </ProtectedRoute>
+            }
           />
           
           <Route path="/" element={<Navigate to="/dashboard" replace />} />

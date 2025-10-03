@@ -1,6 +1,7 @@
 // UserDashboard.tsx - デバッグログ追加版
 
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Layout } from '@/components/layout/Layout';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -38,25 +39,21 @@ export const UserDashboard: React.FC = () => {
   const [competitions, setCompetitions] = useState<CompetitionRace[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
+  const navigate = useNavigate();
 
   useEffect(() => {
-    console.log('🔄 UserDashboard useEffect triggered');
     fetchUserDataSummary();
     fetchCompetitions();
   }, []);
 
   const fetchUserDataSummary = async () => {
     try {
-      console.log('📊 Fetching user data summary...');
       setIsLoading(true);
       setError('');
       
       const token = localStorage.getItem('access_token');
-      console.log('🔑 Token exists:', !!token);
-      console.log('🔑 Token preview:', token?.substring(0, 20) + '...');
       
       const url = `${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/me/data-summary`;
-      console.log('🌐 Requesting URL:', url);
       
       const response = await fetch(url, {
         headers: {
@@ -64,23 +61,18 @@ export const UserDashboard: React.FC = () => {
           'Content-Type': 'application/json'
         }
       });
-
-      console.log('📨 Response status:', response.status);
-      console.log('📨 Response headers:', Object.fromEntries(response.headers.entries()));
       
       if (!response.ok) {
         const errorText = await response.text();
-        console.error('❌ Response error:', errorText);
+        // console.error('❌ Response error:', errorText);
         throw new Error(`データ取得に失敗しました: ${response.status} - ${errorText}`);
       }
 
       const responseText = await response.text();
-      console.log('📨 Raw response:', responseText);
       
       let data;
       try {
         data = JSON.parse(responseText);
-        console.log('✅ Parsed data:', data);
       } catch (parseError) {
         console.error('❌ JSON parse error:', parseError);
         console.error('❌ Response text:', responseText);
@@ -91,7 +83,7 @@ export const UserDashboard: React.FC = () => {
       // バックエンドのレスポンス形式に合わせて変換
       const transformedData = {
         user_info: {
-          user_id: user?.user_id || 'N/A',
+          user_id: user?.username || 'N/A',
           full_name: user?.full_name || user?.username || 'ユーザー',
           email: user?.email || 'N/A'
         },
@@ -106,7 +98,6 @@ export const UserDashboard: React.FC = () => {
         competitions: data?.competitions || []
       };
       
-      console.log('🔄 Transformed data:', transformedData);
       setUserDataSummary(transformedData);
       
     } catch (error: any) {
@@ -120,14 +111,12 @@ export const UserDashboard: React.FC = () => {
 
   const fetchCompetitions = async () => {
     try {
-      console.log('🏆 Fetching competitions...');
       const data = await feedbackService.getUserCompetitions();
-      console.log('✅ Competitions received:', data);
       setCompetitions(data);
       
       if (data.length > 0 && !selectedCompetition) {
         const latest = data[0];
-        console.log('🎯 Auto-selecting competition:', latest);
+        // console.log('🎯 Auto-selecting competition:', latest);
         setSelectedCompetition(latest.id);
       }
     } catch (error: any) {
@@ -137,7 +126,6 @@ export const UserDashboard: React.FC = () => {
   };
 
   const handleRefresh = () => {
-    console.log('🔄 Manual refresh triggered');
     fetchUserDataSummary();
     fetchCompetitions();
   };
@@ -182,9 +170,9 @@ export const UserDashboard: React.FC = () => {
           <h2 className="text-xl font-semibold text-gray-900 mb-4">
             ユーザー情報
           </h2>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
             <div>
-              <p className="text-sm text-gray-500">ユーザーID</p>
+              <p className="text-sm text-gray-500">ユーザー名</p>
               <p className="font-medium">{userDataSummary?.user_info.user_id}</p>
             </div>
             <div>
@@ -195,6 +183,9 @@ export const UserDashboard: React.FC = () => {
               <p className="text-sm text-gray-500">メールアドレス</p>
               <p className="font-medium">{userDataSummary?.user_info.email}</p>
             </div>
+            <Button onClick={() => navigate('/user/change-credentials')} variant="outline">
+              ログイン情報変更
+            </Button>
           </div>
         </Card>
 
@@ -251,7 +242,6 @@ export const UserDashboard: React.FC = () => {
                       : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'
                   }`}
                   onClick={() => {
-                    console.log('🎯 Competition selected:', competition);
                     setSelectedCompetition(competition.id);
                   }}
                 >
