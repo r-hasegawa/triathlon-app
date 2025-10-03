@@ -146,10 +146,10 @@ export const UserDashboard: React.FC = () => {
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-bold text-gray-900">
-              マイダッシュボード
+              {userDataSummary?.user_info.full_name}さんのダッシュボード
             </h1>
             <p className="text-gray-600 mt-1">
-              あなたのセンサーデータとパフォーマンス情報
+              センサーデータとパフォーマンス情報
             </p>
           </div>
           <Button onClick={handleRefresh} variant="outline">

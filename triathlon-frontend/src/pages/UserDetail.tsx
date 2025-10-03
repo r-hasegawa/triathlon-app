@@ -191,7 +191,7 @@ export const UserDetail: React.FC = () => {
         <div className="bg-gradient-to-r from-green-600 to-green-700 rounded-lg p-8">
           <div className="flex items-center justify-between">
             <div>
-              <h1 className="text-3xl font-bold text-white mb-2">
+              <h1 className="text-3xl font-bold text-gray-900 mb-2">
                 {userDataSummary.user_info.full_name} さんのダッシュボード
               </h1>
               <p className="text-green-100">
