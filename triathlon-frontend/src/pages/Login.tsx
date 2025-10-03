@@ -75,7 +75,7 @@ export const Login: React.FC = () => {
 
       {/* ログインフォーム */}
       <div className="mx-auto mt-8 w-full max-w-md px-4 sm:px-0">
-        <Card className="border-0 shadow-xl">
+        <Card className="p-8 sm:p-10 shadow-xl mx-4 sm:mx-0">
           <form onSubmit={handleSubmit} className="space-y-6">
             <div className="space-y-4">
               <Input

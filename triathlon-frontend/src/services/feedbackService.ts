@@ -46,11 +46,7 @@ export const feedbackService = {
   // 指定された大会のフィードバックデータを取得（統合API使用）
   async getFeedbackData(competitionId: string): Promise<FeedbackDataResponse> {
     try {
-      console.log('Making feedback request to:', `/me/feedback-data/${competitionId}`);
       const response = await api.get(`/me/feedback-data/${competitionId}`);
-      
-      // レスポンスデータの構造を確認
-      console.log('Feedback API response:', response.data);
       
       return {
         sensor_data: response.data.sensor_data || [],
@@ -109,7 +105,6 @@ export const feedbackService = {
   // 管理者用：指定ユーザーの大会データを取得
   async getAdminUserFeedbackData(userId: string, competitionId: string): Promise<FeedbackDataResponse> {
     try {
-      console.log('Making admin feedback request to:', `/admin/users/${userId}/feedback-data/${competitionId}`);
       const response = await api.get(`/admin/users/${userId}/feedback-data/${competitionId}`);
       
       return {
