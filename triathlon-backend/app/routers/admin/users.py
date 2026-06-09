@@ -6,6 +6,7 @@ app/routers/admin/users.py
 from fastapi import APIRouter, Depends, HTTPException, status, Query, UploadFile, File
 from sqlalchemy.orm import Session
 from sqlalchemy import desc
+from sqlalchemy import func, case
 from typing import List, Optional
 from datetime import datetime
 import pandas as pd
@@ -14,7 +15,10 @@ import io
 from app.database import get_db
 from app.models.user import User, AdminUser
 from app.models.competition import RaceRecord
-from app.models.flexible_sensor_data import FlexibleSensorMapping
+from app.models.flexible_sensor_data import (
+    FlexibleSensorMapping, SkinTemperatureData,
+    CoreTemperatureData, HeartRateData, SensorType
+    )
 from app.schemas.user import UserCreate, UserUpdate, UserResponse
 from app.utils.dependencies import get_current_admin
 from app.utils.security import get_password_hash
@@ -124,46 +128,129 @@ async def batch_create_users(
 async def list_users(
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=100),
+    search: str = Query("", description="氏名・メール・IDで検索"),  # ← 追加
     db: Session = Depends(get_db),
     current_admin: AdminUser = Depends(get_current_admin)
 ):
     """ユーザー一覧取得（仕様書5.1対応）"""
     try:
+        query = db.query(User)
+        # 検索フィルタ
+        if search.strip():
+            like = f"%{search.strip()}%"
+            query = query.filter(
+                User.full_name.ilike(like) |
+                User.email.ilike(like) |
+                User.user_id.ilike(like) |
+                User.username.ilike(like)
+            )
+
         # 総ユーザー数取得
-        total_count = db.query(User).count()
+        total_count = query.count()
         
         # ページネーション付きでユーザー取得
-        users = db.query(User)\
+        users = query\
             .order_by(desc(User.created_at))\
             .offset(skip)\
             .limit(limit)\
             .all()
         
         user_list = []
+
+        # for user in users:
+        #     # JOINクエリでセンサーデータ数を取得
+        #     skin_temp_count = get_user_sensor_data_count(db, user.user_id, "skin_temperature")
+        #     core_temp_count = get_user_sensor_data_count(db, user.user_id, "core_temperature")
+        #     heart_rate_count = get_user_sensor_data_count(db, user.user_id, "heart_rate")
+            
+        #     # マッピング情報取得
+        #     mapping_count = db.query(FlexibleSensorMapping).filter_by(
+        #         user_id=user.user_id
+        #     ).count()
+            
+        #     user_list.append({
+        #         "id": user.id,
+        #         "user_id": user.user_id,
+        #         "username": user.username,
+        #         "full_name": user.full_name,
+        #         "email": user.email,
+        #         "created_at": user.created_at.isoformat() if user.created_at else None,
+        #         "sensor_data_count": skin_temp_count + core_temp_count + heart_rate_count,
+        #         "mapping_count": mapping_count,
+        #         "sensor_breakdown": {
+        #             "skin_temperature": skin_temp_count,
+        #             "core_temperature": core_temp_count,
+        #             "heart_rate": heart_rate_count
+        #         }
+        #     })
+
+        # --- 20260609 ユーザ表示変更 --- 
+
+        # list_users 関数内のループをこれに差し替え
+        user_ids = [u.user_id for u in users]
+
+        # 体表温：mapping経由でuser_idとSkinTemperatureDataをJOIN集計
+        skin_counts = dict(
+            db.query(
+                FlexibleSensorMapping.user_id,
+                func.count(SkinTemperatureData.id)
+            )
+            .join(SkinTemperatureData, SkinTemperatureData.halshare_id == FlexibleSensorMapping.sensor_id)
+            .filter(
+                FlexibleSensorMapping.user_id.in_(user_ids),
+                FlexibleSensorMapping.sensor_type == SensorType.SKIN_TEMPERATURE
+            )
+            .group_by(FlexibleSensorMapping.user_id)
+            .all()
+        )
+
+        # カプセル体温
+        core_counts = dict(
+            db.query(
+                FlexibleSensorMapping.user_id,
+                func.count(CoreTemperatureData.id)
+            )
+            .join(CoreTemperatureData, CoreTemperatureData.capsule_id == FlexibleSensorMapping.sensor_id)
+            .filter(
+                FlexibleSensorMapping.user_id.in_(user_ids),
+                FlexibleSensorMapping.sensor_type == SensorType.CORE_TEMPERATURE
+            )
+            .group_by(FlexibleSensorMapping.user_id)
+            .all()
+        )
+
+        # 心拍
+        hr_counts = dict(
+            db.query(
+                FlexibleSensorMapping.user_id,
+                func.count(HeartRateData.id)
+            )
+            .join(HeartRateData, HeartRateData.sensor_id == FlexibleSensorMapping.sensor_id)
+            .filter(
+                FlexibleSensorMapping.user_id.in_(user_ids),
+                FlexibleSensorMapping.sensor_type == SensorType.HEART_RATE
+            )
+            .group_by(FlexibleSensorMapping.user_id)
+            .all()
+        )
+
         for user in users:
-            # JOINクエリでセンサーデータ数を取得
-            skin_temp_count = get_user_sensor_data_count(db, user.user_id, "skin_temperature")
-            core_temp_count = get_user_sensor_data_count(db, user.user_id, "core_temperature")
-            heart_rate_count = get_user_sensor_data_count(db, user.user_id, "heart_rate")
-            
-            # マッピング情報取得
-            mapping_count = db.query(FlexibleSensorMapping).filter_by(
-                user_id=user.user_id
-            ).count()
-            
+            uid = user.user_id
+            skin = skin_counts.get(uid, 0)
+            core = core_counts.get(uid, 0)
+            hr   = hr_counts.get(uid, 0)
+
             user_list.append({
                 "id": user.id,
-                "user_id": user.user_id,
+                "user_id": uid,
                 "username": user.username,
                 "full_name": user.full_name,
                 "email": user.email,
                 "created_at": user.created_at.isoformat() if user.created_at else None,
-                "sensor_data_count": skin_temp_count + core_temp_count + heart_rate_count,
-                "mapping_count": mapping_count,
                 "sensor_breakdown": {
-                    "skin_temperature": skin_temp_count,
-                    "core_temperature": core_temp_count,
-                    "heart_rate": heart_rate_count
+                    "skin_temperature": skin,
+                    "core_temperature": core,
+                    "heart_rate": hr,
                 }
             })
         

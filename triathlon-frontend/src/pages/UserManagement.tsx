@@ -14,6 +14,11 @@ interface User {
   username?: string;
   email?: string;
   created_at: string;
+  sensor_breakdown?: {
+    skin_temperature: number;
+    core_temperature: number;
+    heart_rate: number;
+  };
 }
 
 interface BulkCreateResult {
@@ -75,17 +80,28 @@ export const UserManagement: React.FC = () => {
 
   const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
+  // 20260609 変更後
   useEffect(() => {
-    loadUsers();
-  }, []);
+    const timer = setTimeout(() => {
+      loadUsers(1);
+    }, searchTerm ? 400 : 0);
+    return () => clearTimeout(timer);
+  }, [searchTerm]);
 
   const loadUsers = async (page: number = 1) => {
     setIsLoading(true);
     try {
       const token = localStorage.getItem('access_token');
       const skip = (page - 1) * usersPerPage;
+      const params = new URLSearchParams({
+        skip: String(skip),
+        limit: String(usersPerPage),
+      });
+      if (searchTerm.trim()) {
+        params.append('search', searchTerm.trim());
+      }
       const response = await fetch(
-        `${API_BASE_URL}/admin/users?skip=${skip}&limit=${usersPerPage}`,
+        `${API_BASE_URL}/admin/users?${params}`,
         {
           headers: {
             'Authorization': `Bearer ${token}`,
@@ -237,16 +253,6 @@ export const UserManagement: React.FC = () => {
   const viewUserDetail = (userId: string) => {
     navigate(`/admin/users/${userId}`);
   };
-
-  const filteredUsers = users.filter(user => {
-    const searchLower = searchTerm.toLowerCase();
-    return (
-      (user.name && user.name.toLowerCase().includes(searchLower)) ||
-      (user.email && user.email.toLowerCase().includes(searchLower)) ||
-      (user.user_id && user.user_id.toLowerCase().includes(searchLower)) ||
-      (user.username && user.username.toLowerCase().includes(searchLower))
-    );
-  });
 
   const totalPages = Math.ceil(totalUsers / usersPerPage);
   const startIndex = (currentPage - 1) * usersPerPage + 1;
@@ -447,15 +453,16 @@ export const UserManagement: React.FC = () => {
             <div className="text-center py-8">
               <LoadingSpinner size="lg" text="読み込み中..." />
             </div>
-          ) : filteredUsers.length === 0 ? (
+          ) : users.length === 0 ? (
             <div className="text-center py-8 text-gray-500">
               {searchTerm ? '該当するユーザーが見つかりません' : 'ユーザーがありません'}
             </div>
           ) : (
             <div className="space-y-3">
-              {filteredUsers.map((user) => (
+              {users.map((user) => (
                 <div key={user.user_id} className="border rounded-lg p-4 hover:bg-gray-50">
                   <div className="flex items-center justify-between">
+                    {/* --- 20260609 ユーザ表示変更 --- */}
                     <div className="flex-1">
                       <h3 className="font-semibold text-gray-900">
                         {user.name || user.full_name || user.user_id}
@@ -466,7 +473,38 @@ export const UserManagement: React.FC = () => {
                       <p className="text-xs text-gray-500 mt-1">
                         ID: {user.user_id} • 作成: {new Date(user.created_at).toLocaleDateString('ja-JP')}
                       </p>
+                      {/* センサーデータ件数バッジ */}
+                      <div style={{ display: 'flex', gap: '6px', marginTop: '6px', flexWrap: 'wrap' }}>
+                        {(
+                          [
+                            { label: '体表温', key: 'skin_temperature' },
+                            { label: '深部温', key: 'core_temperature' },
+                            { label: '心拍',   key: 'heart_rate' },
+                          ] as const
+                        ).map(({ label, key }) => {
+                          const count = user.sensor_breakdown?.[key] ?? 0;
+                          const hasData = count > 0;
+                          return (
+                            <span
+                              key={key}
+                              style={{
+                                display: 'inline-block',
+                                padding: '1px 8px',
+                                borderRadius: '9999px',
+                                fontSize: '11px',
+                                fontWeight: 600,
+                                backgroundColor: hasData ? '#dcfce7' : '#fee2e2',
+                                color: hasData ? '#166534' : '#991b1b',
+                                border: `1px solid ${hasData ? '#bbf7d0' : '#fecaca'}`,
+                              }}
+                            >
+                              {label} {count.toLocaleString()}
+                            </span>
+                          );
+                        })}
+                      </div>
                     </div>
+
                     
                     <div className="flex items-center gap-2 ml-4">
                       <Button
