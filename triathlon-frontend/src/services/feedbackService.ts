@@ -145,4 +145,18 @@ export const feedbackService = {
       throw new Error('コメントの削除に失敗しました');
     }
   },
+
+  // 管理者用：AIにコメント案を生成してもらう（保存はしない）
+  async generateFeedbackCommentDraft(userId: string, competitionId: string): Promise<string> {
+    try {
+      const response = await api.post(
+        `/admin/users/${userId}/feedback-data/${competitionId}/comment/generate`
+      );
+      return response.data.draft_comment;
+    } catch (error: any) {
+      console.error('Error generating comment draft:', error);
+      throw new Error(error.response?.data?.detail || 'AIコメント案の生成に失敗しました');
+    }
+  },
+
 };

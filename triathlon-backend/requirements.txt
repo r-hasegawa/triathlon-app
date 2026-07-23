@@ -41,3 +41,8 @@ lxml==6.0.1
 # Utilities
 python-dotenv==1.1.1
 dnspython==2.7.0
+
+# AI comment (gemini)
+google-generativeai
+
+python-dotenv

@@ -105,6 +105,7 @@ export const TriathlonFeedbackChart: React.FC<TriathlonFeedbackChartProps> = ({
   const [editedComment, setEditedComment] = useState('');
   const [isSavingComment, setIsSavingComment] = useState(false);
   const [commentError, setCommentError] = useState('');
+  const [isGeneratingDraft, setIsGeneratingDraft] = useState(false);
 
   // デフォルトで最新の大会を選択
   useEffect(() => {
@@ -175,6 +176,20 @@ export const TriathlonFeedbackChart: React.FC<TriathlonFeedbackChartProps> = ({
       setCommentError(err.message || 'コメントの保存に失敗しました');
     } finally {
       setIsSavingComment(false);
+    }
+  };
+
+  const handleGenerateDraft = async () => {
+    if (!userId || !selectedCompetition) return;
+    setIsGeneratingDraft(true);
+    setCommentError('');
+    try {
+      const draft = await feedbackService.generateFeedbackCommentDraft(userId, selectedCompetition);
+      setEditedComment(draft);
+    } catch (err: any) {
+      setCommentError(err.message);
+    } finally {
+      setIsGeneratingDraft(false);
     }
   };
 
@@ -694,13 +709,22 @@ export const TriathlonFeedbackChart: React.FC<TriathlonFeedbackChartProps> = ({
               placeholder="例：Bike区間（10:15頃）で体表温が急上昇しています。給水タイミングを見直しましょう。"
             />
             {commentError && <p className="form-error">{commentError}</p>}
-            <button
-              onClick={handleSaveComment}
-              disabled={isSavingComment}
-              className="btn btn-primary btn-sm mt-2"
-            >
-              {isSavingComment ? '保存中...' : 'コメントを保存'}
-            </button>
+            <div className="flex gap-2 mt-2">
+              <button
+                onClick={handleGenerateDraft}
+                disabled={isGeneratingDraft}
+                className="btn btn-outline btn-sm"
+              >
+                {isGeneratingDraft ? '生成中...' : '🤖 AIコメント案を生成'}
+              </button>
+              <button
+                onClick={handleSaveComment}
+                disabled={isSavingComment}
+                className="btn btn-primary btn-sm"
+              >
+                {isSavingComment ? '保存中...' : 'コメントを保存'}
+              </button>
+            </div>
           </div>
         )}
 

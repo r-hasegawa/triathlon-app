@@ -1,11 +1,14 @@
-# app/routers/feedback.py - コメント機能追加版
+# app/routers/feedback.py - Gemini無料枠を使ったAIコメント生成 + Bike体表温分析機能版
 
+import os
+import json
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from typing import List, Optional, Dict, Any
 from datetime import datetime, timedelta
 import logging
 from pydantic import BaseModel
+import google.generativeai as genai
 
 from ..database import get_db
 from ..utils.dependencies import get_current_user, get_current_admin
@@ -19,6 +22,14 @@ from ..models.competition_feedback import CompetitionFeedback
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+# 🆕 Gemini APIの設定（無料枠：Gemini 2.5 Flash、1日1,500リクエストまで）
+GEMINI_MODEL_NAME = "gemini-flash-latest"
+
+# 🆕 Bikeパート体表温分析の閾値（自社知見に基づく固定値）
+BIKE_SKIN_TEMP_RISK_THRESHOLD = 1.5
+BIKE_PLUS_MINUTES = 10  # 「Bike開始◯分後」の◯分
+SKIN_TEMP_MATCH_TOLERANCE_MINUTES = 3  # 目標時刻に一致するデータを探す際の許容誤差
 
 # ===== スキーマ定義 =====
 
@@ -52,7 +63,7 @@ class FeedbackDataResponse(BaseModel):
     race_record: Optional[RaceRecordSchema] = None
     competition: CompetitionRace
     statistics: Optional[Dict[str, Any]] = None
-    comment: Optional[str] = None  # 🆕 管理者コメント
+    comment: Optional[str] = None  # 管理者コメント
 
 class CommentUpsert(BaseModel):
     comment: str
@@ -60,6 +71,9 @@ class CommentUpsert(BaseModel):
 class CommentResponse(BaseModel):
     comment: str
     updated_at: Optional[str] = None
+
+class CommentDraftResponse(BaseModel):
+    draft_comment: str
 
 # ===== 一般ユーザー用エンドポイント =====
 
@@ -135,7 +149,7 @@ async def get_user_feedback_data(
             logger.error(f"Error retrieving race record: {race_error}")
             race_record = None  # エラーが発生してもNoneを返す
 
-        # 🆕 管理者コメントを取得
+        # 管理者コメントを取得
         comment_text = get_feedback_comment(db, current_user.user_id, competition_id)
 
         return FeedbackDataResponse(
@@ -237,7 +251,7 @@ async def get_admin_user_feedback_data(
         sensor_data = get_sensor_data(db, user_id, competition_id)
         race_record = get_race_record(db, user_id, competition_id)
 
-        # 🆕 管理者コメントを取得
+        # 管理者コメントを取得
         comment_text = get_feedback_comment(db, user_id, competition_id)
 
         return FeedbackDataResponse(
@@ -333,6 +347,82 @@ async def delete_feedback_comment(
         raise HTTPException(status_code=500, detail="コメントの削除に失敗しました")
 
 
+@router.post("/admin/users/{user_id}/feedback-data/{competition_id}/comment/generate", response_model=CommentDraftResponse)
+async def generate_feedback_comment_draft(
+    user_id: str,
+    competition_id: str,
+    current_admin: AdminUser = Depends(get_current_admin),
+    db: Session = Depends(get_db)
+):
+    """
+    管理者用：大会期間のデータからAIにコメント案を生成してもらう（保存はしない）
+
+    Bikeパートの体表温変化（Swim終了時→Bike+10分の低下量、Bike+10分→Bikeパート終盤の再上昇量）は
+    自社の固定ロジックで判定し、AIには一切計算させない。AIには心拍・カプセル体温・WBGTなど
+    残りの指標の傾向コメントのみを書かせ、固定文と結合して返す。
+    """
+    try:
+        sensor_data = get_sensor_data(db, user_id, competition_id)
+        race_record = get_race_record(db, user_id, competition_id)
+
+        if not sensor_data:
+            raise HTTPException(status_code=400, detail="対象のセンサーデータがありません")
+
+        # 🆕 固定ロジックによるBike体表温分析（AIには渡さず、確定文を別枠で用意）
+        bike_skin_analysis = analyze_bike_skin_temperature(sensor_data, race_record)
+        fixed_sentence = format_bike_skin_temp_sentence(bike_skin_analysis) if bike_skin_analysis else None
+
+        # 区間境界（既存の背景色ロジックと同じ規則：フィニッシュがなければ次パートのスタートで代用）
+        swim_start = race_record.swim_start if race_record else None
+        swim_end = (race_record.swim_finish or (race_record.bike_start if race_record else None)) if race_record else None
+        bike_start = race_record.bike_start if race_record else None
+        bike_end = (race_record.bike_finish or (race_record.run_start if race_record else None)) if race_record else None
+        run_start = race_record.run_start if race_record else None
+        run_end = race_record.run_finish if race_record else None
+
+        summary = {
+            "swim": _segment_stats(sensor_data, swim_start, swim_end),
+            "bike": _segment_stats(sensor_data, bike_start, bike_end),
+            "run": _segment_stats(sensor_data, run_start, run_end),
+        }
+
+        prompt = (
+            "あなたはトライアスロンのコーチです。以下は選手の大会中センサーデータを、"
+            "Swim/Bike/Runの区間ごとに平均・最大・最小値へ要約したものです。\n"
+            "このデータから客観的に読み取れることだけをもとに、心拍数・カプセル体温・WBGTの傾向について"
+            "日本語で2〜3文のコメントを書いてください。体表温のBikeパートでの変化については別途"
+            "固定の分析結果があるので、あなたはそれ以外の指標についてのみ言及してください。"
+            "データに無い推測は書かないでください。\n\n"
+            f"データ:\n{json.dumps(summary, ensure_ascii=False, indent=2)}"
+        )
+
+        ai_text = ""
+        try:
+            genai.configure(api_key=os.environ.get("GEMINI_API_KEY"))
+            model = genai.GenerativeModel(GEMINI_MODEL_NAME)
+            response = model.generate_content(prompt)
+            ai_text = (response.text or "").strip()
+        except Exception as api_error:
+            logger.error(f"Gemini API error: {api_error}")
+            ai_text = ""
+
+        # 固定文（体表温リスク判定）を必ず先頭に、AI生成文を後に結合
+        parts = [p for p in [fixed_sentence, ai_text] if p]
+
+        if not parts:
+            raise HTTPException(status_code=502, detail="コメント案を生成できませんでした")
+
+        draft = "\n\n".join(parts)
+
+        return CommentDraftResponse(draft_comment=draft)
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error generating comment draft: {e}")
+        raise HTTPException(status_code=502, detail="AIコメント案の生成に失敗しました")
+
+
 # ===== 内部関数 =====
 
 def get_feedback_comment(db: Session, user_id: str, competition_id: str) -> Optional[str]:
@@ -345,6 +435,135 @@ def get_feedback_comment(db: Session, user_id: str, competition_id: str) -> Opti
     except Exception as e:
         logger.error(f"Error getting feedback comment: {e}")
         return None
+
+
+def _segment_stats(sensor_data: List[SensorDataPoint], start: Optional[str], end: Optional[str]) -> Dict[str, Any]:
+    """指定区間のセンサーデータを統計値（min/max/avg）に要約"""
+    if not start or not end:
+        return {}
+
+    start_dt = datetime.fromisoformat(start)
+    end_dt = datetime.fromisoformat(end)
+    points = [p for p in sensor_data if start_dt <= datetime.fromisoformat(p.timestamp) <= end_dt]
+
+    def stat(values: List[Optional[float]]):
+        values = [v for v in values if v is not None]
+        if not values:
+            return None
+        return {
+            "min": round(min(values), 1),
+            "max": round(max(values), 1),
+            "avg": round(sum(values) / len(values), 1),
+        }
+
+    return {
+        "skin_temperature": stat([p.skin_temperature for p in points]),
+        "core_temperature": stat([p.core_temperature for p in points]),
+        "heart_rate": stat([p.heart_rate for p in points]),
+        "wbgt_temperature": stat([p.wbgt_temperature for p in points]),
+    }
+
+
+def _find_nearest_skin_temp(
+    sensor_data: List[SensorDataPoint],
+    target_time_iso: Optional[str],
+    tolerance_minutes: int = SKIN_TEMP_MATCH_TOLERANCE_MINUTES
+) -> Optional[float]:
+    """指定時刻に最も近い体表温データ点を探す（許容誤差内のみ有効とみなす）"""
+    if not target_time_iso:
+        return None
+    target = datetime.fromisoformat(target_time_iso)
+    candidates = [p for p in sensor_data if p.skin_temperature is not None]
+    if not candidates:
+        return None
+    nearest = min(candidates, key=lambda p: abs((datetime.fromisoformat(p.timestamp) - target).total_seconds()))
+    if abs((datetime.fromisoformat(nearest.timestamp) - target).total_seconds()) > tolerance_minutes * 60:
+        return None
+    return nearest.skin_temperature
+
+
+def analyze_bike_skin_temperature(
+    sensor_data: List[SensorDataPoint],
+    race_record: Optional[RaceRecordSchema]
+) -> Optional[Dict[str, Any]]:
+    """
+    Bikeパートの体表温変化分析（自社知見に基づく固定ロジック）
+
+    ① Swim終了時 → Bike開始10分後 の低下量
+    ② Bike開始10分後 → Bikeパート終盤（最高値）までの上昇量
+    の2軸で4分類のリスク判定を行う。
+
+    体表温がしっかり下がる（①が閾値以上）ことは体冷却ができている証拠、
+    その後上がりすぎる（②が閾値以上）ことは熱中症リスクの兆候として扱う。
+
+    体表温データが必要な時点に存在しない場合は None を返し、
+    呼び出し側はこの分析結果自体を表示しない（欠損対応の原則に準拠）。
+    """
+    if not race_record:
+        return None
+
+    swim_end = race_record.swim_finish or race_record.bike_start
+    bike_start = race_record.bike_start
+    bike_end = race_record.bike_finish or race_record.run_start
+
+    if not swim_end or not bike_start:
+        return None
+
+    bike_start_dt = datetime.fromisoformat(bike_start)
+    bike_plus10_iso = (bike_start_dt + timedelta(minutes=BIKE_PLUS_MINUTES)).isoformat()
+
+    swim_end_temp = _find_nearest_skin_temp(sensor_data, swim_end)
+    bike_plus10_temp = _find_nearest_skin_temp(sensor_data, bike_plus10_iso)
+
+    # 体表温データが揃っていない場合は分析自体を行わない
+    if swim_end_temp is None or bike_plus10_temp is None:
+        return None
+
+    bike_end_dt = datetime.fromisoformat(bike_end) if bike_end else None
+    later_temps = [
+        p.skin_temperature for p in sensor_data
+        if p.skin_temperature is not None
+        and datetime.fromisoformat(p.timestamp) >= (bike_start_dt + timedelta(minutes=BIKE_PLUS_MINUTES))
+        and (bike_end_dt is None or datetime.fromisoformat(p.timestamp) <= bike_end_dt)
+    ]
+
+    if not later_temps:
+        return None
+
+    bike_max_after10 = max(later_temps)
+
+    drop1 = round(swim_end_temp - bike_plus10_temp, 1)      # ① 低下量
+    rise2 = round(bike_max_after10 - bike_plus10_temp, 1)   # ② 再上昇量
+
+    if drop1 < BIKE_SKIN_TEMP_RISK_THRESHOLD and rise2 >= BIKE_SKIN_TEMP_RISK_THRESHOLD:
+        risk_label = "熱中症リスクが高いおそれがあります（体表温が下がりにくく、上がりやすい状態）"
+    elif drop1 < BIKE_SKIN_TEMP_RISK_THRESHOLD and rise2 < BIKE_SKIN_TEMP_RISK_THRESHOLD:
+        risk_label = "体表温が変化しづらい状態です"
+    elif drop1 >= BIKE_SKIN_TEMP_RISK_THRESHOLD and rise2 >= BIKE_SKIN_TEMP_RISK_THRESHOLD:
+        risk_label = "体表温が変化しやすい状態です（一度下がった後、再び上がっています）"
+    else:  # drop1 >= threshold and rise2 < threshold
+        risk_label = "体表温が下がりやすく上がりにくい状態で、リスクは低いと考えられます"
+
+    return {
+        "swim_end_temp": round(swim_end_temp, 1),
+        "bike_plus10_temp": round(bike_plus10_temp, 1),
+        "bike_max_after10_temp": round(bike_max_after10, 1),
+        "drop1": drop1,
+        "rise2": rise2,
+        "risk_label": risk_label,
+    }
+
+
+def format_bike_skin_temp_sentence(analysis: Dict[str, Any]) -> str:
+    """Bike体表温分析の固定テンプレート文（AIには書き換えさせない）"""
+    return (
+        f"体表温について、Swim終了時点で{analysis['swim_end_temp']}°C、"
+        f"Bike開始{BIKE_PLUS_MINUTES}分後には{analysis['bike_plus10_temp']}°C"
+        f"（{analysis['drop1']}°Cの低下）でした。"
+        f"その後Bikeパート終盤にかけて最高{analysis['bike_max_after10_temp']}°C"
+        f"（{analysis['rise2']}°Cの再上昇）が見られます。"
+        f"{analysis['risk_label']}。"
+    )
 
 
 def get_sensor_data(db: Session, user_id: str, competition_id: Optional[str] = None) -> List[SensorDataPoint]:
