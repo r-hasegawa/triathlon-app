@@ -16,6 +16,7 @@
 - **時間範囲設定**: 競技開始〜終了 + オフセット機能（前後0-30分）
 - **大会選択**: 複数大会参加時の選択UI
 - **データ欠損対応**: 自動補完とエラーハンドリング
+- **🆕 管理者コメント**: 大会ごとの管理者フィードバック（AIコメント案の生成機能つき）
 
 **📊 表示データ:**
 - 体表温度（halshare センサー）
@@ -43,10 +44,49 @@
 - **Authentication**: JWT Token
 - **Data Processing**: Pandas + NumPy
 - **File Upload**: Multipart Form Data
+- **AI連携**: Gemini API（管理者コメント案の生成、無料枠使用）
+
+## 🔑 環境変数の設定
+
+バックエンドは `.env` ファイルから環境変数を読み込みます（`app/main.py` で `python-dotenv` の `load_dotenv()` を呼び出しています）。**この設定をしないとサーバー自体は起動しますが、AIコメント生成など一部の機能がエラーになります。**
+
+### ローカル開発
+
+`triathlon-backend/` 直下に `.env` ファイルを作成してください（Gitには含まれません、`.gitignore` で除外済み）。テンプレートとして `.env.example` を用意しているので、コピーして使うのが簡単です。
+
+```bash
+cd triathlon-backend
+cp .env.example .env
+# .env を開いて値を埋める
+```
+
+```bash
+# triathlon-backend/.env の中身
+SECRET_KEY=local-development-secret-key-please-change
+DEBUG=True
+GEMINI_API_KEY=your-gemini-api-key-here
+# DATABASE_URLは設定しない場合、SQLiteをデフォルト使用
+```
+
+`GEMINI_API_KEY` は https://ai.google.dev の「Get API Key」から無料で取得できます。管理者コメントのAI生成機能で使用します。未設定でもアプリ自体は動きますが、AIコメント生成ボタンを押すとエラーになります。
+
+### 本番（Render）
+
+`.env` ファイルは使わず、Renderダッシュボード → 対象のWeb Service → 「Environment」タブで直接設定します。
+
+| 変数名 | 用途 |
+|---|---|
+| `SECRET_KEY` | JWT署名用の秘密鍵 |
+| `DATABASE_URL` | Supabase接続文字列（トランザクションプーラー、ポート6543） |
+| `GEMINI_API_KEY` | 管理者コメントのAI生成機能用（Gemini API） |
+
+**重要**：`.env` ファイルは絶対にコミットしないでください。すでに `.gitignore` に含まれていますが、`git status` で誤って追跡されていないか確認してから push することをおすすめします。
 
 ## 🚀 セットアップ・起動
 
 ### 1. バックエンド起動
+
+上記の「環境変数の設定」を先に済ませてから実行してください。
 
 ```bash
 cd triathlon-backend
@@ -87,6 +127,7 @@ npm run dev
 2. 「トライアスロン フィードバックグラフ」セクションで大会を選択
 3. オフセット時間を調整（前後0-30分）
 4. センサーデータと競技区間を確認
+5. 管理者コメントが登録されていれば、グラフ下に表示
 
 ### 管理者
 
@@ -94,13 +135,14 @@ npm run dev
 2. ユーザー管理 → 対象ユーザーの詳細
 3. 「📊 グラフ表示」ボタンをクリック
 4. ユーザーの大会データを選択・確認
+5. グラフ下のコメント欄に管理者コメントを入力（「AIコメント案を生成」ボタンで下書きも可能）し、保存
 
 ## 🔧 新規APIエンドポイント
 
 ### ユーザー用
 ```
 GET /me/competitions                    # 参加大会一覧
-GET /me/feedback-data/{competition_id}  # フィードバックデータ
+GET /me/feedback-data/{competition_id}  # フィードバックデータ（管理者コメント含む）
 GET /me/sensor-data                     # センサーデータ
 GET /me/race-records/{competition_id}   # 大会記録
 GET /me/data-summary                    # データサマリー
@@ -108,8 +150,11 @@ GET /me/data-summary                    # データサマリー
 
 ### 管理者用
 ```
-GET /admin/users/{user_id}/competitions                    # ユーザー参加大会一覧
-GET /admin/users/{user_id}/feedback-data/{competition_id}  # ユーザーフィードバックデータ
+GET    /admin/users/{user_id}/competitions                              # ユーザー参加大会一覧
+GET    /admin/users/{user_id}/feedback-data/{competition_id}             # ユーザーフィードバックデータ
+POST   /admin/users/{user_id}/feedback-data/{competition_id}/comment     # コメント作成・更新
+DELETE /admin/users/{user_id}/feedback-data/{competition_id}/comment     # コメント削除
+POST   /admin/users/{user_id}/feedback-data/{competition_id}/comment/generate  # AIコメント案の生成
 ```
 
 ## 📂 プロジェクト構造
@@ -120,14 +165,14 @@ triathlon-system/
 │   ├── src/
 │   │   ├── components/
 │   │   │   ├── charts/
-│   │   │   │   ├── TriathlonFeedbackChart.tsx  🆕 メイングラフ
+│   │   │   │   ├── TriathlonFeedbackChart.tsx  🆕 メイングラフ + 管理者コメント
 │   │   │   │   ├── TemperatureChart.tsx        ✅ 既存
 │   │   │   │   └── StatisticsCard.tsx          ✅ 既存
 │   │   │   └── ui/                             ✅ 基本UI
 │   │   ├── hooks/
 │   │   │   └── useFeedbackChart.ts             🆕 カスタムフック
 │   │   ├── services/
-│   │   │   ├── feedbackService.ts              🆕 API通信
+│   │   │   ├── feedbackService.ts              🆕 API通信（コメント関連含む）
 │   │   │   └── userDataService.ts              🔄 拡張済み
 │   │   ├── types/
 │   │   │   └── feedback.ts                     🆕 型定義
@@ -138,16 +183,17 @@ triathlon-system/
 │   │       └── DataDetail.tsx                  🔄 グラフ統合
 │   └── package.json
 ├── triathlon-backend/
+│   ├── .env                                    🆕 環境変数（Git管理外）
+│   ├── .env.example                            🆕 環境変数テンプレート
 │   ├── app/
 │   │   ├── routers/
-│   │   │   ├── feedback.py                     🆕 フィードバック
+│   │   │   ├── feedback.py                     🆕 フィードバック + AIコメント生成
 │   │   │   ├── user_data.py                    🔄 拡張済み
 │   │   │   ├── admin.py                        ✅ 既存
 │   │   │   └── auth.py                         ✅ 既存
-│   │   ├── schemas/
-│   │   │   └── feedback.py                     🆕 スキーマ
-│   │   ├── models/                             ✅ 既存
-│   │   └── main.py                             🔄 ルーター追加
+│   │   ├── models/
+│   │   │   └── competition_feedback.py         🆕 管理者コメントテーブル
+│   │   └── main.py                             🔄 ルーター追加 + load_dotenv()
 │   └── requirements.txt
 └── README.md                                   🔄 更新済み
 ```
@@ -167,12 +213,14 @@ triathlon-system/
 3. フィードバック生成
    ├── 時系列データ統合
    ├── 競技区間識別（Swim/Bike/Run）
-   └── グラフ描画
+   ├── グラフ描画
+   └── 管理者コメント（手動 or AI生成）
 
 4. ユーザー表示
    ├── リアルタイムチャート
    ├── 競技区間背景色
-   └── 統計情報表示
+   ├── 統計情報表示
+   └── 管理者コメント表示
 ```
 
 ## 🎯 開発状況
@@ -189,13 +237,15 @@ triathlon-system/
 - ユーザー管理（一覧・詳細・検索）
 - 大会管理（作成・削除）
 - マルチセンサーデータアップロード
-- **🆕 フィードbackグラフ表示**
+- フィードバックグラフ表示
+- **🆕 大会単位の管理者コメント（AIコメント案の生成つき）**
 
 **👤 一般ユーザー機能**
 - データサマリー表示
-- **🆕 トライアスロンフィードbackグラフ**
+- トライアスロンフィードバックグラフ
 - 参加大会一覧
 - センサーデータ統計
+- **🆕 管理者コメントの閲覧**
 
 **📊 フィードバックグラフ（仕様書3.1-3.4完全準拠）**
 - ✅ X軸/Y軸設定（時間 vs 温度・心拍）
@@ -203,6 +253,11 @@ triathlon-system/
 - ✅ オフセット表示機能（前後10分）
 - ✅ 複数大会選択機能
 - ✅ データ欠損対応
+
+**🌡️ Bikeパート体表温分析（固定ロジック）**
+- ✅ Swim終了時→Bike開始10分後の体表温低下量を算出
+- ✅ Bike開始10分後→Bikeパート終盤の体表温再上昇量を算出
+- ✅ 2軸4分類による熱中症リスク判定（自社知見の閾値1.5°Cに基づく）
 
 ### 🔄 実装中・改善予定
 
@@ -243,6 +298,8 @@ cd triathlon-backend
 pip install -r requirements.txt
 python setup_database.py
 ```
+
+本番環境（Render）では「環境変数の設定」セクションの表を参照し、ダッシュボードから環境変数を設定してください。`.env` ファイルは使用しません。
 
 ## 📝 ライセンス
 
