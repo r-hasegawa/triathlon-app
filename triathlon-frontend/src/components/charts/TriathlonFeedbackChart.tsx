@@ -1,4 +1,4 @@
-// TriathlonFeedbackChart.tsx - 無限レンダリング完全修正版
+// TriathlonFeedbackChart.tsx - 管理者コメント機能追加版
 
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
@@ -100,6 +100,12 @@ export const TriathlonFeedbackChart: React.FC<TriathlonFeedbackChartProps> = ({
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
 
+  // 🆕 管理者コメント関連のstate
+  const [comment, setComment] = useState<string | null>(null);
+  const [editedComment, setEditedComment] = useState('');
+  const [isSavingComment, setIsSavingComment] = useState(false);
+  const [commentError, setCommentError] = useState('');
+
   // デフォルトで最新の大会を選択
   useEffect(() => {
     if (!selectedCompetition && competitions.length > 0) {
@@ -116,6 +122,11 @@ export const TriathlonFeedbackChart: React.FC<TriathlonFeedbackChartProps> = ({
       fetchFeedbackData();
     }
   }, [selectedCompetition]);
+
+  // 🆕 取得したコメントを編集用stateに同期
+  useEffect(() => {
+    setEditedComment(comment || '');
+  }, [comment]);
 
   const fetchFeedbackData = async () => {
     try {
@@ -137,14 +148,33 @@ export const TriathlonFeedbackChart: React.FC<TriathlonFeedbackChartProps> = ({
 
       setSensorData(feedbackData.sensor_data || []);
       setRaceRecord(feedbackData.race_record);
+      setComment(feedbackData.comment ?? null); // 🆕 追加
 
     } catch (err: any) {
       console.error('Feedback data fetch error:', err);
       setError(err.message || 'データの取得に失敗しました');
       setSensorData([]);
       setRaceRecord(null);
+      setComment(null); // 🆕 追加
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  // 🆕 管理者コメントの保存
+  const handleSaveComment = async () => {
+    if (!userId || !selectedCompetition) return;
+
+    setIsSavingComment(true);
+    setCommentError('');
+    try {
+      await feedbackService.saveFeedbackComment(userId, selectedCompetition, editedComment);
+      setComment(editedComment);
+    } catch (err: any) {
+      console.error('Comment save error:', err);
+      setCommentError(err.message || 'コメントの保存に失敗しました');
+    } finally {
+      setIsSavingComment(false);
     }
   };
 
@@ -649,6 +679,38 @@ export const TriathlonFeedbackChart: React.FC<TriathlonFeedbackChartProps> = ({
               <div className="w-4 h-4 rounded" style={{ backgroundColor: 'rgba(187, 247, 208, 0.6)' }}></div>
               <span>Run ({raceRecord.run_start ? new Date(raceRecord.run_start).toLocaleTimeString('ja-JP') : '未設定'})</span>
             </div>
+          </div>
+        )}
+
+        {/* 🆕 管理者コメント（管理者ビュー：編集可能） */}
+        {isAdminView && selectedCompetition && (
+          <div className="mt-2 border-t pt-4">
+            <label className="label">管理者コメント</label>
+            <textarea
+              value={editedComment}
+              onChange={(e) => setEditedComment(e.target.value)}
+              rows={4}
+              className="input"
+              placeholder="例：Bike区間（10:15頃）で体表温が急上昇しています。給水タイミングを見直しましょう。"
+            />
+            {commentError && <p className="form-error">{commentError}</p>}
+            <button
+              onClick={handleSaveComment}
+              disabled={isSavingComment}
+              className="btn btn-primary btn-sm mt-2"
+            >
+              {isSavingComment ? '保存中...' : 'コメントを保存'}
+            </button>
+          </div>
+        )}
+
+        {/* 🆕 管理者コメント（ユーザービュー：読み取り専用） */}
+        {!isAdminView && comment && (
+          <div className="alert alert-info">
+            <p className="text-sm font-semibold" style={{ marginBottom: 'var(--spacing-1)' }}>
+              コーチからのコメント
+            </p>
+            <p className="text-sm whitespace-pre-wrap">{comment}</p>
           </div>
         )}
       </div>

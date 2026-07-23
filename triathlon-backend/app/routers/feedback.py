@@ -1,4 +1,4 @@
-# app/routers/feedback.py - 完全新規作成版
+# app/routers/feedback.py - コメント機能追加版
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
@@ -15,6 +15,7 @@ from ..models.flexible_sensor_data import (
     FlexibleSensorMapping, SkinTemperatureData, 
     CoreTemperatureData, HeartRateData, WBGTData, SensorType
 )
+from ..models.competition_feedback import CompetitionFeedback
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -51,6 +52,14 @@ class FeedbackDataResponse(BaseModel):
     race_record: Optional[RaceRecordSchema] = None
     competition: CompetitionRace
     statistics: Optional[Dict[str, Any]] = None
+    comment: Optional[str] = None  # 🆕 管理者コメント
+
+class CommentUpsert(BaseModel):
+    comment: str
+
+class CommentResponse(BaseModel):
+    comment: str
+    updated_at: Optional[str] = None
 
 # ===== 一般ユーザー用エンドポイント =====
 
@@ -125,7 +134,10 @@ async def get_user_feedback_data(
         except Exception as race_error:
             logger.error(f"Error retrieving race record: {race_error}")
             race_record = None  # エラーが発生してもNoneを返す
-        
+
+        # 🆕 管理者コメントを取得
+        comment_text = get_feedback_comment(db, current_user.user_id, competition_id)
+
         return FeedbackDataResponse(
             sensor_data=sensor_data,
             race_record=race_record,
@@ -138,7 +150,8 @@ async def get_user_feedback_data(
             statistics={
                 "total_records": len(sensor_data),
                 "data_types": list(set([data.data_type for data in sensor_data if data.data_type]))
-            }
+            },
+            comment=comment_text
         )
         
     except HTTPException:
@@ -223,7 +236,10 @@ async def get_admin_user_feedback_data(
         # データ取得
         sensor_data = get_sensor_data(db, user_id, competition_id)
         race_record = get_race_record(db, user_id, competition_id)
-        
+
+        # 🆕 管理者コメントを取得
+        comment_text = get_feedback_comment(db, user_id, competition_id)
+
         return FeedbackDataResponse(
             sensor_data=sensor_data,
             race_record=race_record,
@@ -235,7 +251,8 @@ async def get_admin_user_feedback_data(
             statistics={
                 "total_records": len(sensor_data),
                 "data_types": list(set([data.data_type for data in sensor_data if data.data_type]))
-            }
+            },
+            comment=comment_text
         )
         
     except HTTPException:
@@ -245,7 +262,90 @@ async def get_admin_user_feedback_data(
         raise HTTPException(status_code=500, detail="フィードバックデータの取得に失敗しました")
 
 
+@router.post("/admin/users/{user_id}/feedback-data/{competition_id}/comment", response_model=CommentResponse)
+async def upsert_feedback_comment(
+    user_id: str,
+    competition_id: str,
+    payload: CommentUpsert,
+    current_admin: AdminUser = Depends(get_current_admin),
+    db: Session = Depends(get_db)
+):
+    """管理者用：指定ユーザー・大会へのコメントを作成/更新"""
+    try:
+        # ユーザーと大会の存在確認
+        user = db.query(User).filter(User.user_id == user_id).first()
+        if not user:
+            raise HTTPException(status_code=404, detail="指定されたユーザーが見つかりません")
+
+        competition = db.query(Competition).filter(
+            Competition.competition_id == competition_id
+        ).first()
+        if not competition:
+            raise HTTPException(status_code=404, detail="指定された大会が見つかりません")
+
+        existing = db.query(CompetitionFeedback).filter_by(
+            user_id=user_id, competition_id=competition_id
+        ).first()
+
+        if existing:
+            existing.comment = payload.comment
+            existing.admin_id = current_admin.admin_id
+        else:
+            existing = CompetitionFeedback(
+                user_id=user_id,
+                competition_id=competition_id,
+                admin_id=current_admin.admin_id,
+                comment=payload.comment
+            )
+            db.add(existing)
+
+        db.commit()
+        db.refresh(existing)
+
+        return CommentResponse(
+            comment=existing.comment,
+            updated_at=existing.updated_at.isoformat() if existing.updated_at else None
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error upserting feedback comment: {e}")
+        raise HTTPException(status_code=500, detail="コメントの保存に失敗しました")
+
+
+@router.delete("/admin/users/{user_id}/feedback-data/{competition_id}/comment")
+async def delete_feedback_comment(
+    user_id: str,
+    competition_id: str,
+    current_admin: AdminUser = Depends(get_current_admin),
+    db: Session = Depends(get_db)
+):
+    """管理者用：指定ユーザー・大会へのコメントを削除"""
+    try:
+        deleted = db.query(CompetitionFeedback).filter_by(
+            user_id=user_id, competition_id=competition_id
+        ).delete()
+        db.commit()
+        return {"deleted": bool(deleted)}
+    except Exception as e:
+        logger.error(f"Error deleting feedback comment: {e}")
+        raise HTTPException(status_code=500, detail="コメントの削除に失敗しました")
+
+
 # ===== 内部関数 =====
+
+def get_feedback_comment(db: Session, user_id: str, competition_id: str) -> Optional[str]:
+    """指定ユーザー・大会の管理者コメントを取得"""
+    try:
+        feedback = db.query(CompetitionFeedback).filter_by(
+            user_id=user_id, competition_id=competition_id
+        ).first()
+        return feedback.comment if feedback else None
+    except Exception as e:
+        logger.error(f"Error getting feedback comment: {e}")
+        return None
+
 
 def get_sensor_data(db: Session, user_id: str, competition_id: Optional[str] = None) -> List[SensorDataPoint]:
     """センサーデータを取得して統合形式に変換"""
@@ -364,23 +464,20 @@ def get_sensor_data(db: Session, user_id: str, competition_id: Optional[str] = N
         # WBGT データ（大会全体で共有）
         if competition_id:
             try:
-                # ⚠️ 修正: WBGTData.datetime を WBGTData.timestamp に変更
                 wbgt_data = db.query(WBGTData).filter(
                     WBGTData.competition_id == competition_id
-                ).order_by(WBGTData.timestamp).all()  # ← datetime → timestamp
+                ).order_by(WBGTData.timestamp).all()
                 
                 logger.info(f"Found {len(wbgt_data)} WBGT records for competition {competition_id}")
                 
                 for data in wbgt_data:
-                    # ⚠️ 修正: data.datetime を data.timestamp に変更
-                    timestamp_key = data.timestamp.isoformat()  # ← datetime → timestamp
+                    timestamp_key = data.timestamp.isoformat()
                     if timestamp_key not in grouped_data:
                         grouped_data[timestamp_key] = SensorDataPoint(
                             timestamp=timestamp_key,
                             sensor_id="wbgt_sensor"
                         )
-                    # ⚠️ 修正: data.temperature を data.wbgt_value に変更
-                    grouped_data[timestamp_key].wbgt_temperature = data.wbgt_value  # ← temperature → wbgt_value
+                    grouped_data[timestamp_key].wbgt_temperature = data.wbgt_value
                     if not grouped_data[timestamp_key].data_type:
                         grouped_data[timestamp_key].data_type = "wbgt"
                         

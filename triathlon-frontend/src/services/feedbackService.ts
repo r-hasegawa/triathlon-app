@@ -29,6 +29,7 @@ export interface FeedbackDataResponse {
   sensor_data: SensorDataPoint[];
   race_record: RaceRecord | null;
   competition: CompetitionRace;
+  comment?: string | null;
 }
 
 export const feedbackService = {
@@ -55,7 +56,8 @@ export const feedbackService = {
           id: competitionId,
           name: 'Unknown Competition',
           date: new Date().toISOString()
-        }
+        },
+        comment: response.data.comment ?? null,
       };
     } catch (error: any) {
       console.error('Error fetching feedback data:', error);
@@ -114,12 +116,33 @@ export const feedbackService = {
           id: competitionId,
           name: 'Unknown Competition',
           date: new Date().toISOString()
-        }
+        },
+        comment: response.data.comment ?? null,
       };
     } catch (error: any) {
       console.error('Error fetching admin feedback data:', error);
       console.error('Error details:', error.response?.data);
       throw new Error('管理者用フィードbackックデータの取得に失敗しました');
+    }
+  },
+
+  // 管理者用：コメントを保存（新規作成/更新）
+  async saveFeedbackComment(userId: string, competitionId: string, comment: string): Promise<void> {
+    try {
+      await api.post(`/admin/users/${userId}/feedback-data/${competitionId}/comment`, { comment });
+    } catch (error: any) {
+      console.error('Error saving feedback comment:', error);
+      throw new Error('コメントの保存に失敗しました');
+    }
+  },
+
+  // 管理者用：コメントを削除
+  async deleteFeedbackComment(userId: string, competitionId: string): Promise<void> {
+    try {
+      await api.delete(`/admin/users/${userId}/feedback-data/${competitionId}/comment`);
+    } catch (error: any) {
+      console.error('Error deleting feedback comment:', error);
+      throw new Error('コメントの削除に失敗しました');
     }
   },
 };

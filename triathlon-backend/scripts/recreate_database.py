@@ -28,7 +28,7 @@ from app.models.flexible_sensor_data import (
     WBGTData,
     UploadBatch
 )
-
+from app.models.competition_feedback import CompetitionFeedback
 
 def confirm_action():
     """実行前の確認"""

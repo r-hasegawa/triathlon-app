@@ -25,6 +25,7 @@ export const useFeedbackChart = ({
   );
   const [sensorData, setSensorData] = useState<SensorDataPoint[]>([]);
   const [raceRecord, setRaceRecord] = useState<RaceRecord | null>(null);
+  const [comment, setComment] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -72,6 +73,7 @@ export const useFeedbackChart = ({
 
       setSensorData(response.sensor_data || []);
       setRaceRecord(response.race_record || null);
+      setComment(response.comment ?? null);
 
     } catch (err: any) {
       console.error('Feedback data fetch error:', err);
@@ -105,6 +107,7 @@ export const useFeedbackChart = ({
     setSelectedCompetition(competitionId);
     setSensorData([]);
     setRaceRecord(null);
+    setComment(null);
     setError('');
   }, []);
 
@@ -113,6 +116,7 @@ export const useFeedbackChart = ({
     selectedCompetition,
     sensorData,
     raceRecord,
+    comment,
     isLoading,
     error,
     refreshData,

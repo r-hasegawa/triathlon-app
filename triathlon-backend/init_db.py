@@ -19,6 +19,7 @@ from app.models.flexible_sensor_data import (
     SkinTemperatureData, CoreTemperatureData, 
     HeartRateData, WBGTData
 )
+from app.models.competition_feedback import CompetitionFeedback
 
 def drop_all_tables():
     """既存テーブルを全削除"""
