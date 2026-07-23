@@ -732,7 +732,7 @@ export const TriathlonFeedbackChart: React.FC<TriathlonFeedbackChartProps> = ({
         {!isAdminView && comment && (
           <div className="alert alert-info">
             <p className="text-sm font-semibold" style={{ marginBottom: 'var(--spacing-1)' }}>
-              コーチからのコメント
+              サポートチームからのコメント
             </p>
             <p className="text-sm whitespace-pre-wrap">{comment}</p>
           </div>
