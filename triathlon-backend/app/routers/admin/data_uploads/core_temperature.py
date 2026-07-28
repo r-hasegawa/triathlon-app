@@ -52,12 +52,12 @@ async def upload_core_temperature(
             # センサーID行を動的に検索（"Pill"を含む行）
             sensor_id_line_index = None
             for i, line in enumerate(lines):
-                if 'Pill' in line:
+                if 'Pill' in line or 'Capsule' in line:
                     sensor_id_line_index = i
                     break
             
             if sensor_id_line_index is None:
-                raise ValueError("センサーID行（'Pill'を含む行）が見つかりませんでした")
+                raise ValueError("センサーID行（'Pill'または'Capsule'を含む行）が見つかりませんでした")
             
             # センサーIDを抽出
             sensor_ids = {}
@@ -65,7 +65,7 @@ async def upload_core_temperature(
             parts = header_line.split(',')
             
             for i, part in enumerate(parts):
-                if 'Pill' in part and i + 1 < len(parts):
+                if ('Pill' in part or 'Capsule' in part) and i + 1 < len(parts):
                     sensor_id = parts[i + 1].strip()
                     if sensor_id:
                         sensor_ids[i] = sensor_id
