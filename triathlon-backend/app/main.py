@@ -10,6 +10,7 @@ from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 import logging
 import os
+from sqlalchemy import text
 
 from .database import engine, Base, SessionLocal
 from .routers import auth, user_data, feedback
@@ -131,12 +132,23 @@ app.include_router(feedback.router, tags=["フィードバック"])
 
 # ヘルスチェックエンドポイント
 @app.get("/health")
-async def health_check():
+def health_check():
     """
-    システムの状態確認
+    システムの状態確認（Supabase停止対策としてDBにも軽いクエリを投げる）
+    DBが落ちていてもRenderのヘルスチェックで再起動されないよう、常に200で返す
     """
+    db_status = "ok"
+    db = SessionLocal()
+    try:
+        db.execute(text("SELECT 1"))
+    except Exception as e:
+        logger.warning(f"health check: DB error: {e}")
+        db_status = "error"
+    finally:
+        db.close()
     return {
         "status": "healthy",
+        "db": db_status,
         "service": "triathlon-feedback-system",
         "version": "1.0.0"
     }
